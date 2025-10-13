@@ -166,10 +166,13 @@ supported_crypto = BTC,ETH,LTC      # Supported cryptocurrencies
 ```ini
 [backup]
 s3_bucket = your-backup-bucket      # S3 bucket name
-s3_region = us-east-1               # AWS region
-backup_frequency = daily             # Backup frequency
+s3_region = us-east-1               # AWS region OR compatible provider region
+s3_endpoint_url = https://s3.your-provider.com # (optional) Use for Wasabi, MinIO, etc.
+backup_frequency = daily            # Backup frequency
 backup_retention_days = 30          # Retention period
 ```
+
+If you use Wasabi, DigitalOcean Spaces, or another S3-compatible provider, set the `s3_endpoint_url` to the provider's endpoint (e.g., `https://s3.wasabisys.com`).
 
 ## Customization
 

@@ -57,9 +57,14 @@ fi
 # Upload to S3 if configured
 if [ -n "$FLEIO_S3_BUCKET" ] && [ -n "$FLEIO_S3_ACCESS_KEY" ]; then
     echo "Uploading encrypted backup to S3..."
+    S3_ENDPOINT_FLAG=""
+    if [ -n "$FLEIO_S3_ENDPOINT_URL" ]; then
+        S3_ENDPOINT_FLAG="--endpoint-url $FLEIO_S3_ENDPOINT_URL"
+    fi
     aws s3 cp "${BACKUP_DIR}/${BACKUP_NAME}.tar.gz" \
         "s3://${FLEIO_S3_BUCKET}/fleio-backups/${BACKUP_NAME}.tar.gz" \
         --region "${FLEIO_S3_REGION}" \
+        $S3_ENDPOINT_FLAG \
         --storage-class STANDARD_IA
 fi
 

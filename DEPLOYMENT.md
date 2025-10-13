@@ -180,9 +180,9 @@ Set up automated encrypted backups:
 
 ```ini
 [backup]
-# S3 configuration
 s3_bucket = your-backup-bucket
 s3_region = us-east-1
+s3_endpoint_url = https://s3.your-provider.com   # Optional, for Wasabi, MinIO etc.
 s3_access_key = your_access_key
 s3_secret_key = your_secret_key
 
@@ -191,6 +191,8 @@ backup_frequency = daily
 backup_retention_days = 30
 backup_encryption_key = your_encryption_key
 ```
+
+If you use Wasabi, DigitalOcean Spaces, or any S3-compatible provider, set `s3_endpoint_url` appropriately (e.g. `https://s3.wasabisys.com`).
 
 ## Customization
 
