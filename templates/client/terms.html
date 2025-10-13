@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}{% trans "Terms of Service" %} - {{ site_name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/custom.css' %}">
+<style>
+.omenhost-page-container {
+    min-height: 100vh;
+    background: #1a0b2e;
+    padding: 40px 20px;
+    font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+.omenhost-page-content {
+    max-width: 800px;
+    margin: 0 auto;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    padding: 60px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+}
+
+.omenhost-page-title {
+    font-size: 32px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 30px;
+}
+
+.omenhost-page-text {
+    font-size: 16px;
+    color: #b9bbbe;
+    line-height: 1.6;
+    margin-bottom: 20px;
+}
+
+.omenhost-page-text h2 {
+    color: #9680fe;
+    font-size: 24px;
+    margin-top: 30px;
+    margin-bottom: 15px;
+}
+
+.omenhost-page-text h3 {
+    color: #ffffff;
+    font-size: 20px;
+    margin-top: 25px;
+    margin-bottom: 10px;
+}
+
+.omenhost-back-link {
+    display: inline-block;
+    margin-top: 30px;
+    color: #9680fe;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.omenhost-back-link:hover {
+    color: #7c3aed;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="omenhost-page-container">
+    <div class="omenhost-page-content">
+        <h1 class="omenhost-page-title">Terms of Service</h1>
+        
+        <div class="omenhost-page-text">
+            <p><strong>Last updated:</strong> {{ "now"|date:"F d, Y" }}</p>
+            
+            <h2>1. Acceptance of Terms</h2>
+            <p>By accessing and using OmenHost Cloud services, you accept and agree to be bound by the terms and provision of this agreement.</p>
+            
+            <h2>2. Use License</h2>
+            <p>Permission is granted to temporarily use OmenHost Cloud services for personal, non-commercial transitory viewing only. This is the grant of a license, not a transfer of title, and under this license you may not:</p>
+            <ul>
+                <li>modify or copy the materials</li>
+                <li>use the materials for any commercial purpose or for any public display</li>
+                <li>attempt to reverse engineer any software contained on the website</li>
+                <li>remove any copyright or other proprietary notations from the materials</li>
+            </ul>
+            
+            <h2>3. Service Availability</h2>
+            <p>OmenHost Cloud services are provided on an "as is" basis. We strive to maintain high availability but cannot guarantee uninterrupted service.</p>
+            
+            <h2>4. User Responsibilities</h2>
+            <p>Users are responsible for:</p>
+            <ul>
+                <li>Maintaining the security of their account credentials</li>
+                <li>Complying with all applicable laws and regulations</li>
+                <li>Not using the service for illegal or unauthorized purposes</li>
+                <li>Backing up their data regularly</li>
+            </ul>
+            
+            <h2>5. Limitation of Liability</h2>
+            <p>In no event shall OmenHost or its suppliers be liable for any damages arising out of the use or inability to use the materials on OmenHost Cloud, even if OmenHost or an authorized representative has been notified orally or in writing of the possibility of such damage.</p>
+            
+            <h2>6. Privacy Policy</h2>
+            <p>Your privacy is important to us. Please review our Privacy Policy, which also governs your use of the service.</p>
+            
+            <h2>7. Changes to Terms</h2>
+            <p>OmenHost reserves the right to revise these terms of service at any time without notice. By using this service, you are agreeing to be bound by the then current version of these terms.</p>
+            
+            <h2>8. Contact Information</h2>
+            <p>If you have any questions about these Terms of Service, please contact us at support@omenhost.com.</p>
+        </div>
+        
+        <a href="javascript:history.back()" class="omenhost-back-link">← Back to previous page</a>
+    </div>
+</div>
+{% endblock %}
+

@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}{% trans "Reset Password" %} - {{ site_name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/custom.css' %}">
+<style>
+.omenhost-reset-container {
+    min-height: 100vh;
+    background: #1a0b2e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+.omenhost-reset-wrapper {
+    display: flex;
+    gap: 24px;
+    background: transparent;
+    max-width: 1000px;
+    width: 100%;
+}
+
+.omenhost-panel {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    padding: 40px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+}
+
+.omenhost-branding {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.omenhost-logo {
+    display: flex;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.omenhost-logo-icon {
+    width: 40px;
+    height: 40px;
+    margin-right: 15px;
+    border-radius: 8px;
+}
+
+.omenhost-brand-name { color: #fff; font-size: 28px; font-weight: 700; margin: 0; }
+.omenhost-tagline { color: #b9bbbe; margin: 0; letter-spacing: 2px; font-size: 12px; }
+
+.omenhost-heading { color: #fff; font-size: 28px; font-weight: 700; margin-bottom: 16px; }
+.omenhost-text { color: #b9bbbe; line-height: 1.6; }
+
+.omenhost-form-title { color: #fff; font-size: 24px; font-weight: 700; text-align: center; margin-bottom: 24px; }
+.omenhost-form-label { color: #fff; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; margin-bottom: 8px; display: block; }
+.omenhost-form-control { width: 100%; padding: 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; }
+.omenhost-form-control:focus { outline: none; border-color: #9680fe; box-shadow: 0 0 0 2px rgba(150, 128, 254, 0.25); background: rgba(255,255,255,0.15); }
+
+.omenhost-btn { width: 100%; padding: 16px; background: #b38aff; border: none; border-radius: 8px; color: #120a26; font-weight: 600; cursor: pointer; }
+.omenhost-btn:hover { background: #a277ff; }
+
+.omenhost-links { text-align: center; margin-top: 16px; }
+.omenhost-links a { color: #bba8ff; text-decoration: none; }
+.omenhost-links a:hover { color: #e2d9ff; }
+
+@media (max-width: 768px) {
+    .omenhost-reset-wrapper { flex-direction: column; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="omenhost-reset-container">
+    <div class="omenhost-reset-wrapper">
+        <div class="omenhost-panel omenhost-branding">
+            <div class="omenhost-logo">
+                <img src="{% static 'omenhost-logo.svg' %}" alt="OmenHost Logo" class="omenhost-logo-icon">
+                <div>
+                    <h1 class="omenhost-brand-name">OmenHost</h1>
+                    <p class="omenhost-tagline">CLOUD SERVICES</p>
+                </div>
+            </div>
+            <h2 class="omenhost-heading">Need a fresh start?</h2>
+            <p class="omenhost-text">Enter the email tied to your OmenHost Cloud account and we will send a secure reset link so you can get back to your projects in moments.</p>
+        </div>
+
+        <div class="omenhost-panel">
+            <div class="omenhost-form-title">Reset password</div>
+
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="omenhost-alert omenhost-alert-{{ message.tags }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            {% if not token %}
+            <form method="post" action="{% url 'billing:forgot_password' %}" id="resetRequestForm">
+                {% csrf_token %}
+                <label for="id_email" class="omenhost-form-label">EMAIL</label>
+                <input type="email" name="email" id="id_email" class="omenhost-form-control" placeholder="Enter your email" required>
+                <button type="submit" class="omenhost-btn" id="resetRequestBtn">Send reset link</button>
+            </form>
+            <div class="omenhost-links">
+                <a href="{% url 'billing:login' %}">Return to login</a><br>
+                <a href="{% url 'billing:signup' %}">Create a new account</a>
+            </div>
+            {% else %}
+            <form method="post" action="{% url 'billing:reset_password' token=token %}" id="resetPasswordForm">
+                {% csrf_token %}
+                <label for="id_new_password1" class="omenhost-form-label">NEW PASSWORD</label>
+                <input type="password" name="new_password1" id="id_new_password1" class="omenhost-form-control" placeholder="Enter your new password" required>
+                <div id="password-strength" class="omenhost-password-strength"></div>
+
+                <label for="id_new_password2" class="omenhost-form-label" style="margin-top:16px;">CONFIRM NEW PASSWORD</label>
+                <input type="password" name="new_password2" id="id_new_password2" class="omenhost-form-control" placeholder="Confirm your new password" required>
+                <div id="password-match" class="omenhost-password-strength"></div>
+
+                <button type="submit" class="omenhost-btn" id="resetPasswordBtn" style="margin-top:16px;">Reset Password</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Password strength checker
+function checkPasswordStrength(password) {
+    let strength = 0;
+    let feedback = '';
+    
+    if (password.length >= 8) strength++;
+    if (password.match(/[a-z]/)) strength++;
+    if (password.match(/[A-Z]/)) strength++;
+    if (password.match(/[0-9]/)) strength++;
+    if (password.match(/[^a-zA-Z0-9]/)) strength++;
+    
+    const strengthDiv = document.getElementById('password-strength');
+    const passwordInput = document.getElementById('id_new_password1');
+    
+    if (strength < 3) {
+        strengthDiv.textContent = 'Weak password';
+        strengthDiv.className = 'omenhost-password-strength weak';
+        passwordInput.className = 'omenhost-form-control error';
+    } else if (strength < 5) {
+        strengthDiv.textContent = 'Medium strength';
+        strengthDiv.className = 'omenhost-password-strength medium';
+        passwordInput.className = 'omenhost-form-control';
+    } else {
+        strengthDiv.textContent = 'Strong password';
+        strengthDiv.className = 'omenhost-password-strength strong';
+        passwordInput.className = 'omenhost-form-control success';
+    }
+}
+
+// Password match checker
+function checkPasswordMatch() {
+    const password1 = document.getElementById('id_new_password1').value;
+    const password2 = document.getElementById('id_new_password2').value;
+    const matchDiv = document.getElementById('password-match');
+    const password2Input = document.getElementById('id_new_password2');
+    
+    if (password2.length > 0) {
+        if (password1 === password2) {
+            matchDiv.textContent = 'Passwords match';
+            matchDiv.className = 'omenhost-password-strength strong';
+            password2Input.className = 'omenhost-form-control success';
+        } else {
+            matchDiv.textContent = 'Passwords do not match';
+            matchDiv.className = 'omenhost-password-strength weak';
+            password2Input.className = 'omenhost-form-control error';
+        }
+    } else {
+        matchDiv.textContent = '';
+        password2Input.className = 'omenhost-form-control';
+    }
+}
+
+// Show/hide password toggle
+function togglePasswordVisibility() {
+    const password1 = document.getElementById('id_new_password1');
+    const password2 = document.getElementById('id_new_password2');
+    const checkbox = document.getElementById('show_password');
+    
+    if (checkbox.checked) {
+        password1.type = 'text';
+        password2.type = 'text';
+    } else {
+        password1.type = 'password';
+        password2.type = 'password';
+    }
+}
+
+// Event listeners
+const password1Input = document.getElementById('id_new_password1');
+const password2Input = document.getElementById('id_new_password2');
+const showPasswordCheckbox = document.getElementById('show_password');
+
+if (password1Input) {
+    password1Input.addEventListener('input', function() {
+        checkPasswordStrength(this.value);
+        checkPasswordMatch();
+    });
+}
+
+if (password2Input) {
+    password2Input.addEventListener('input', checkPasswordMatch);
+}
+
+if (showPasswordCheckbox) {
+    showPasswordCheckbox.addEventListener('change', togglePasswordVisibility);
+}
+
+// Form submission handlers
+const resetRequestForm = document.getElementById('resetRequestForm');
+const resetPasswordForm = document.getElementById('resetPasswordForm');
+
+if (resetRequestForm) {
+    resetRequestForm.addEventListener('submit', function() {
+        const btn = document.getElementById('resetRequestBtn');
+        btn.innerHTML = 'Sending...';
+        btn.disabled = true;
+    });
+}
+
+if (resetPasswordForm) {
+    resetPasswordForm.addEventListener('submit', function(e) {
+        const password1 = document.getElementById('id_new_password1').value;
+        const password2 = document.getElementById('id_new_password2').value;
+        
+        if (password1 !== password2) {
+            e.preventDefault();
+            alert('Passwords do not match');
+            return;
+        }
+        
+        if (password1.length < 8) {
+            e.preventDefault();
+            alert('Password must be at least 8 characters long');
+            return;
+        }
+        
+        const btn = document.getElementById('resetPasswordBtn');
+        btn.innerHTML = 'Resetting...';
+        btn.disabled = true;
+    });
+}
+
+// Add focus effects
+document.querySelectorAll('.omenhost-form-control').forEach(input => {
+    input.addEventListener('focus', function() {
+        this.parentElement.classList.add('focused');
+    });
+    
+    input.addEventListener('blur', function() {
+        this.parentElement.classList.remove('focused');
+    });
+});
+</script>
+{% endblock %}

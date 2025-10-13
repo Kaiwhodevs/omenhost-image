@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}{% trans "Forgot Password" %} - {{ site_name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/custom.css' %}">
+<style>
+.discord-forgot-container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1a1d21 0%, #2c2f33 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.discord-forgot-card {
+    background: rgba(47, 49, 54, 0.8);
+    border: 1px solid #40444b;
+    border-radius: 12px;
+    padding: 40px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+}
+
+.discord-forgot-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.discord-forgot-header h1 {
+    color: #9680fe;
+    font-weight: 700;
+    margin-bottom: 10px;
+    font-size: 28px;
+}
+
+.discord-forgot-header p {
+    color: #b9bbbe;
+    margin: 0;
+    font-size: 16px;
+}
+
+.discord-form-group {
+    margin-bottom: 20px;
+}
+
+.discord-form-label {
+    color: #b9bbbe;
+    font-weight: 500;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.discord-form-control {
+    width: 100%;
+    padding: 12px 16px;
+    background: #40444b;
+    border: 1px solid #40444b;
+    border-radius: 6px;
+    color: #ffffff;
+    font-size: 16px;
+    transition: all 0.2s ease;
+}
+
+.discord-form-control:focus {
+    outline: none;
+    border-color: #9680fe;
+    box-shadow: 0 0 0 2px rgba(150, 128, 254, 0.25);
+}
+
+.discord-form-control::placeholder {
+    color: #72767d;
+}
+
+.discord-btn {
+    width: 100%;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #9680fe 0%, #7c3aed 100%);
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-weight: 500;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(150, 128, 254, 0.3);
+}
+
+.discord-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(150, 128, 254, 0.4);
+}
+
+.discord-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.discord-links {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.discord-links a {
+    color: #9680fe;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.discord-links a:hover {
+    color: #7c3aed;
+}
+
+.discord-alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    border-left: 4px solid;
+}
+
+.discord-alert-error {
+    background: rgba(240, 71, 71, 0.2);
+    border-left-color: #f04747;
+    color: #f04747;
+}
+
+.discord-alert-success {
+    background: rgba(67, 181, 129, 0.2);
+    border-left-color: #43b581;
+    color: #43b581;
+}
+
+.discord-alert-info {
+    background: rgba(150, 128, 254, 0.2);
+    border-left-color: #9680fe;
+    color: #9680fe;
+}
+
+.discord-info-box {
+    background: rgba(47, 49, 54, 0.5);
+    border: 1px solid #40444b;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.discord-info-box h3 {
+    color: #9680fe;
+    margin-bottom: 15px;
+    font-size: 18px;
+}
+
+.discord-info-box p {
+    color: #b9bbbe;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.discord-info-box ul {
+    color: #b9bbbe;
+    margin: 10px 0 0 0;
+    padding-left: 20px;
+}
+
+.discord-info-box li {
+    margin-bottom: 5px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .discord-forgot-container {
+        padding: 10px;
+    }
+    
+    .discord-forgot-card {
+        padding: 30px 20px;
+        border-radius: 8px;
+    }
+    
+    .discord-forgot-header h1 {
+        font-size: 24px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="discord-forgot-container">
+    <div class="discord-forgot-card">
+        <div class="discord-forgot-header">
+            <h1>{% trans "Forgot Password?" %}</h1>
+            <p>{% trans "No worries, we'll help you reset it" %}</p>
+        </div>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="discord-alert discord-alert-{{ message.tags }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <div class="discord-info-box">
+            <h3>{% trans "How it works" %}</h3>
+            <p>{% trans "Enter your email address and we'll send you a secure link to reset your password." %}</p>
+            <ul>
+                <li>{% trans "Enter your registered email address" %}</li>
+                <li>{% trans "Check your email for reset instructions" %}</li>
+                <li>{% trans "Click the secure link in the email" %}</li>
+                <li>{% trans "Create a new password" %}</li>
+            </ul>
+        </div>
+
+        <form method="post" action="{% url 'billing:forgot_password' %}" id="forgotPasswordForm">
+            {% csrf_token %}
+            
+            <div class="discord-form-group">
+                <label for="id_email" class="discord-form-label">
+                    {% trans "Email Address" %}
+                </label>
+                <input type="email" 
+                       name="email" 
+                       id="id_email" 
+                       class="discord-form-control" 
+                       placeholder="{% trans 'Enter your email address' %}"
+                       required
+                       autocomplete="email">
+            </div>
+
+            <button type="submit" class="discord-btn" id="forgotPasswordBtn">
+                {% trans "Send Reset Instructions" %}
+            </button>
+        </form>
+
+        <div class="discord-links">
+            <a href="{% url 'billing:login' %}">
+                {% trans "Back to Login" %}
+            </a>
+            <br>
+            <a href="{% url 'billing:signup' %}">
+                {% trans "Don't have an account? Sign up" %}
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Form submission handler
+document.getElementById('forgotPasswordForm').addEventListener('submit', function() {
+    const btn = document.getElementById('forgotPasswordBtn');
+    btn.innerHTML = '{% trans "Sending..." %}';
+    btn.disabled = true;
+});
+
+// Email validation
+document.getElementById('id_email').addEventListener('blur', function() {
+    const email = this.value;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
+    if (email && !emailRegex.test(email)) {
+        this.style.borderColor = '#f04747';
+    } else {
+        this.style.borderColor = '#40444b';
+    }
+});
+
+// Add focus effects
+document.querySelectorAll('.discord-form-control').forEach(input => {
+    input.addEventListener('focus', function() {
+        this.parentElement.classList.add('focused');
+    });
+    
+    input.addEventListener('blur', function() {
+        this.parentElement.classList.remove('focused');
+    });
+});
+
+// Auto-focus on email field
+document.getElementById('id_email').focus();
+</script>
+{% endblock %}

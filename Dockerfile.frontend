@@ -1,0 +1,25 @@
+# Custom Fleio Frontend Docker Image
+# Based on the official Fleio frontend image
+
+FROM hub.fleio.com/fleio_frontend-2025-06:1
+
+# Set environment variables
+ENV FLEIO_CUSTOM_THEME=true
+ENV FLEIO_DISCORD_THEME=true
+
+# Create custom directories
+RUN mkdir -p /opt/fleio-custom/{assets,templates,static}
+
+# Copy custom assets
+COPY assets/ /opt/fleio-custom/assets/
+
+# Copy custom templates
+COPY templates/ /opt/fleio-custom/templates/
+
+# Copy custom CSS and JS
+COPY assets/custom.css /opt/fleio/static/css/
+COPY assets/custom.js /opt/fleio/static/js/
+
+# Set proper permissions
+RUN chown -R fleio:fleio /opt/fleio-custom
+RUN chown -R fleio:fleio /opt/fleio/static

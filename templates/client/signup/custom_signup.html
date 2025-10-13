@@ -1,0 +1,488 @@
+{% extends "base.html" %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}{% trans "Sign Up" %} - {{ site_name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/custom.css' %}">
+<style>
+.omenhost-signup-container {
+    min-height: 100vh;
+    background: #1a0b2e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+.omenhost-signup-wrapper {
+    display: flex;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    max-width: 1200px;
+    width: 100%;
+}
+
+.omenhost-branding-panel {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 60px 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.omenhost-logo-section {
+    margin-bottom: 40px;
+}
+
+.omenhost-logo {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.omenhost-logo-icon {
+    width: 40px;
+    height: 40px;
+    margin-right: 15px;
+    border-radius: 8px;
+}
+
+.omenhost-brand-name {
+    font-size: 32px;
+    font-weight: 700;
+    color: #ffffff;
+    margin: 0;
+}
+
+.omenhost-tagline {
+    font-size: 14px;
+    color: #b9bbbe;
+    margin: 0;
+    letter-spacing: 2px;
+}
+
+.omenhost-welcome {
+    font-size: 28px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 20px;
+}
+
+.omenhost-description {
+    font-size: 16px;
+    color: #b9bbbe;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.omenhost-form-panel {
+    flex: 2;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 60px 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.omenhost-form-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 40px;
+}
+
+.omenhost-form-group {
+    margin-bottom: 24px;
+}
+
+.omenhost-form-label {
+    color: #ffffff;
+    font-weight: 500;
+    margin-bottom: 8px;
+    display: block;
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.omenhost-form-control {
+    width: 100%;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: #ffffff;
+    font-size: 16px;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.omenhost-form-control:focus {
+    outline: none;
+    border-color: #9680fe;
+    box-shadow: 0 0 0 2px rgba(150, 128, 254, 0.25);
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.omenhost-form-control::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.omenhost-form-control.error {
+    border-color: #f04747;
+}
+
+.omenhost-form-control.success {
+    border-color: #43b581;
+}
+
+.omenhost-btn {
+    width: 100%;
+    padding: 16px;
+    background: #9680fe;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 500;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: 20px;
+}
+
+.omenhost-btn:hover {
+    background: #7c3aed;
+    transform: translateY(-1px);
+}
+
+.omenhost-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.omenhost-terms {
+    font-size: 14px;
+    color: #b9bbbe;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.omenhost-terms a {
+    color: #9680fe;
+    text-decoration: none;
+}
+
+.omenhost-terms a:hover {
+    text-decoration: underline;
+}
+
+.omenhost-links {
+    text-align: left;
+}
+
+.omenhost-links a {
+    color: #9680fe;
+    text-decoration: none;
+    font-weight: 400;
+    transition: color 0.2s ease;
+}
+
+.omenhost-links a:hover {
+    color: #7c3aed;
+}
+
+.omenhost-alert {
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border-left: 4px solid;
+}
+
+.omenhost-alert-error {
+    background: rgba(240, 71, 71, 0.2);
+    border-left-color: #f04747;
+    color: #f04747;
+}
+
+.omenhost-alert-success {
+    background: rgba(67, 181, 129, 0.2);
+    border-left-color: #43b581;
+    color: #43b581;
+}
+
+.omenhost-alert-info {
+    background: rgba(150, 128, 254, 0.2);
+    border-left-color: #9680fe;
+    color: #9680fe;
+}
+
+.omenhost-password-strength {
+    margin-top: 8px;
+    font-size: 14px;
+}
+
+.omenhost-password-strength.weak {
+    color: #f04747;
+}
+
+.omenhost-password-strength.medium {
+    color: #faa61a;
+}
+
+.omenhost-password-strength.strong {
+    color: #43b581;
+}
+
+@media (max-width: 768px) {
+    .omenhost-signup-wrapper {
+        flex-direction: column;
+        max-width: 500px;
+    }
+    
+    .omenhost-branding-panel,
+    .omenhost-form-panel {
+        padding: 40px 30px;
+    }
+    
+    .omenhost-brand-name {
+        font-size: 24px;
+    }
+    
+    .omenhost-welcome {
+        font-size: 24px;
+    }
+    
+    .omenhost-form-title {
+        font-size: 24px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="omenhost-signup-container">
+    <div class="omenhost-signup-wrapper">
+        <!-- Left Panel: Branding -->
+        <div class="omenhost-branding-panel">
+            <div class="omenhost-logo-section">
+                <div class="omenhost-logo">
+                    <img src="{% static 'omenhost-logo.svg' %}" alt="OmenHost Logo" class="omenhost-logo-icon">
+                    <div>
+                        <h1 class="omenhost-brand-name">OmenHost</h1>
+                        <p class="omenhost-tagline">CLOUD SERVICES</p>
+                    </div>
+                </div>
+            </div>
+            
+            <h2 class="omenhost-welcome">Spin up in style</h2>
+            <p class="omenhost-description">
+                Launch your OmenHost Cloud account to orchestrate OpenStack projects, billing, and automation in a single, beautifully themed console.
+            </p>
+        </div>
+        
+        <!-- Right Panel: Signup Form -->
+        <div class="omenhost-form-panel">
+            <h2 class="omenhost-form-title">Create your account</h2>
+
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="omenhost-alert omenhost-alert-{{ message.tags }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <form method="post" action="{% url 'billing:signup' %}" id="signupForm">
+                {% csrf_token %}
+                
+                <div class="omenhost-form-group">
+                    <label for="id_first_name" class="omenhost-form-label">
+                        FIRST NAME
+                    </label>
+                    <input type="text" 
+                           name="first_name" 
+                           id="id_first_name" 
+                           class="omenhost-form-control" 
+                           placeholder="Enter your first name"
+                           required>
+                </div>
+
+                <div class="omenhost-form-group">
+                    <label for="id_last_name" class="omenhost-form-label">
+                        LAST NAME
+                    </label>
+                    <input type="text" 
+                           name="last_name" 
+                           id="id_last_name" 
+                           class="omenhost-form-control" 
+                           placeholder="Enter your last name"
+                           required>
+                </div>
+
+                <div class="omenhost-form-group">
+                    <label for="id_company" class="omenhost-form-label">
+                        COMPANY (OPTIONAL)
+                    </label>
+                    <input type="text" 
+                           name="company" 
+                           id="id_company" 
+                           class="omenhost-form-control" 
+                           placeholder="Enter your company name">
+                </div>
+
+                <div class="omenhost-form-group">
+                    <label for="id_phone" class="omenhost-form-label">
+                        PHONE NUMBER
+                    </label>
+                    <input type="tel" 
+                           name="phone" 
+                           id="id_phone" 
+                           class="omenhost-form-control" 
+                           placeholder="Enter your phone number"
+                           required>
+                </div>
+
+                <div class="omenhost-form-group">
+                    <label for="id_email" class="omenhost-form-label">
+                        EMAIL
+                    </label>
+                    <input type="email" 
+                           name="email" 
+                           id="id_email" 
+                           class="omenhost-form-control" 
+                           placeholder="Enter your email address"
+                           required>
+                </div>
+
+                <div class="omenhost-form-group">
+                    <label for="id_password1" class="omenhost-form-label">
+                        PASSWORD
+                    </label>
+                    <input type="password" 
+                           name="password1" 
+                           id="id_password1" 
+                           class="omenhost-form-control" 
+                           placeholder="Create a strong password"
+                           required>
+                    <div id="password-strength" class="omenhost-password-strength"></div>
+                </div>
+
+                <div class="omenhost-form-group">
+                    <label for="id_password2" class="omenhost-form-label">
+                        CONFIRM PASSWORD
+                    </label>
+                    <input type="password" 
+                           name="password2" 
+                           id="id_password2" 
+                           class="omenhost-form-control" 
+                           placeholder="Confirm your password"
+                           required>
+                    <div id="password-match" class="omenhost-password-strength"></div>
+                </div>
+
+                <button type="submit" class="omenhost-btn" id="signupBtn">
+                    Create account
+                </button>
+            </form>
+
+            <div class="omenhost-terms">
+                By continuing you agree to the OmenHost Cloud <a href="{% url 'terms' %}" target="_blank">Terms of Service</a> and <a href="{% url 'privacy' %}" target="_blank">Privacy Policy</a>.
+            </div>
+
+            <div class="omenhost-links">
+                <a href="{% url 'billing:login' %}">
+                    Already have an account? Sign in instead
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Password strength checker
+function checkPasswordStrength(password) {
+    let strength = 0;
+    let feedback = '';
+    
+    if (password.length >= 8) strength++;
+    if (password.match(/[a-z]/)) strength++;
+    if (password.match(/[A-Z]/)) strength++;
+    if (password.match(/[0-9]/)) strength++;
+    if (password.match(/[^a-zA-Z0-9]/)) strength++;
+    
+    const strengthDiv = document.getElementById('password-strength');
+    const passwordInput = document.getElementById('id_password1');
+    
+    if (strength < 3) {
+        strengthDiv.textContent = 'Weak password';
+        strengthDiv.className = 'omenhost-password-strength weak';
+        passwordInput.className = 'omenhost-form-control error';
+    } else if (strength < 5) {
+        strengthDiv.textContent = 'Medium strength';
+        strengthDiv.className = 'omenhost-password-strength medium';
+        passwordInput.className = 'omenhost-form-control';
+    } else {
+        strengthDiv.textContent = 'Strong password';
+        strengthDiv.className = 'omenhost-password-strength strong';
+        passwordInput.className = 'omenhost-form-control success';
+    }
+}
+
+// Password match checker
+function checkPasswordMatch() {
+    const password1 = document.getElementById('id_password1').value;
+    const password2 = document.getElementById('id_password2').value;
+    const matchDiv = document.getElementById('password-match');
+    const password2Input = document.getElementById('id_password2');
+    
+    if (password2.length > 0) {
+        if (password1 === password2) {
+            matchDiv.textContent = 'Passwords match';
+            matchDiv.className = 'omenhost-password-strength strong';
+            password2Input.className = 'omenhost-form-control success';
+        } else {
+            matchDiv.textContent = 'Passwords do not match';
+            matchDiv.className = 'omenhost-password-strength weak';
+            password2Input.className = 'omenhost-form-control error';
+        }
+    } else {
+        matchDiv.textContent = '';
+        password2Input.className = 'omenhost-form-control';
+    }
+}
+
+// Event listeners
+document.getElementById('id_password1').addEventListener('input', function() {
+    checkPasswordStrength(this.value);
+    checkPasswordMatch();
+});
+
+document.getElementById('id_password2').addEventListener('input', checkPasswordMatch);
+
+// Form submission
+document.getElementById('signupForm').addEventListener('submit', function(e) {
+    const password1 = document.getElementById('id_password1').value;
+    const password2 = document.getElementById('id_password2').value;
+    
+    if (password1 !== password2) {
+        e.preventDefault();
+        alert('Passwords do not match');
+        return;
+    }
+    
+    const btn = document.getElementById('signupBtn');
+    btn.innerHTML = 'Creating Account...';
+    btn.disabled = true;
+});
+</script>
+{% endblock %}

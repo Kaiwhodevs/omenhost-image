@@ -1,0 +1,1309 @@
+#!/bin/bash
+
+FLEIO_UID=625
+FLEIO_GID=625
+FLEIO_HOME_DIR=/home/fleio
+FLEIO_BACKUP_DIR=/home/fleio/backup
+FLEIO_BIN_DIR=$FLEIO_HOME_DIR/bin
+ENV_FILE=/home/fleio/compose/.env
+MYSQL_PASS_FILE=/home/fleio/compose/secrets/.db_password
+LICENSE_FILE="/home/fleio/.fleio_license"
+FLEIO_VERSION_FILE=/home/fleio/version
+UPGRADE_DIR=/home/fleio/.upgrade
+FLEIO_DEFAULT_HOME_URL="https://fleio.com"
+FLEIO_VARS_FILE="$FLEIO_HOME_DIR/vars"
+
+if [ "$(whoami)" != "fleio" ]; then
+  AS_FLEIO="sudo -i -u fleio"
+else
+  AS_FLEIO=""
+fi
+
+##
+## Return the number of commands (number of arguments that equal "1").
+## Argument: list of command flags
+## Exit with error, if 2 or more commands found.
+##
+get_command_count() {
+  local cmd_count=0
+  for cmd in $(seq 1 $#); do
+      if [ "${!cmd}" = "1" ]; then
+        cmd_count=$((cmd_count+1))
+      fi
+  done
+  echo $cmd_count
+}
+
+##
+## Returns the variable value if set, the value in .env if exists, empty string otherwise
+## $1 - environment variable name as string
+##
+get_env_var() {
+  local var_name="$1"
+  if [ -n "${!var_name}" ]; then
+    echo -n "${!var_name}"
+  elif [ -f $ENV_FILE ]; then
+    echo -n "$(grep "^$var_name=" $ENV_FILE | cut -f2 -d '=')"
+  else
+    echo -n ""
+  fi
+}
+
+##
+## Initialize environment variables from .env if not set
+##
+init_env_vars() {
+  FLEIO_DOCKER_HUB="$(get_env_var FLEIO_DOCKER_HUB)"
+  FLEIO_SSL_OPTION="$(get_env_var FLEIO_SSL_OPTION)"
+  FLEIO_DOMAIN="$(get_env_var FLEIO_DOMAIN)"
+  FLEIO_FRONTEND_URL="$(get_env_var FLEIO_FRONTEND_URL)"
+  EXTERNAL_IMAGES_HUB=""
+
+  if [ -z "$FLEIO_DOCKER_HUB" ]; then
+    # if still not set, use default
+    FLEIO_DOCKER_HUB=hub.fleio.com
+  elif [ "$FLEIO_DOCKER_HUB" != "hub.fleio.com" ]; then
+    EXTERNAL_IMAGES_HUB="$FLEIO_DOCKER_HUB/"
+  fi
+}
+
+##
+## $1 - version to
+## prints "1" if CI version, "0" otherwise
+##
+is_ci_version() {
+  local version_string="$1"
+  if [ "$version_string" = "" ]; then
+    printf "0"
+  else
+    if [ "$(echo $version_string | grep -o -E -e '[0-9a-f]{40}')" = "" ]; then
+      printf "0"
+    else
+      printf "1"
+    fi
+  fi
+}
+
+##
+## $1 - a Fleio version
+## prints the Fleio release suffix based on provided version
+##
+get_release_suffix() {
+  if [ "$(is_ci_version $1)" != "1" ]; then
+    echo -n "-$1" | sed '0,/\./s//-/' | sed '0,/\./s//:/'
+  else
+    echo -n ":$1"
+  fi
+
+}
+
+##
+## Through error on too many arguments.
+## $1 - maximum count allowed, from $2 on - arguments array
+##
+error_on_more() {
+  local max_count=$1
+  shift # Shift all arguments to the left (original $1 gets lost)
+  local params=("$@") # Rebuild the array with rest of arguments
+  if [ "${#params[@]}" -gt "$max_count" ]; then
+    echo "Error: Unknown or too many arguments." >&2
+    exit 1
+  fi
+}
+
+##
+## If current user is not root, show error $1 and exit with code 1 or code $2 (second param is optional)
+##
+error_on_not_root() {
+  if [ "$2" = "" ]; then
+    exit_code=1
+  else
+    exit_code=$2
+  fi
+  if [ "$EUID" -ne 0 ]; then
+    echo -e "$1" >&2
+    exit "$exit_code"
+  fi
+}
+
+##
+## If db container is not running, display an error and exit with code 1
+##
+error_if_db_not_running() {
+  if ! docker compose ps --services --status running | grep -q db ; then
+    echo -e "$1"
+    exit 1
+  fi
+}
+
+##
+## Checks if utils container is running, if not starts it
+##
+ensure_utils_is_running() {
+  if ! docker compose ps --services --status running | grep -wq utils ; then
+    set +e
+    utils_up_output=$(docker compose up -d utils 2>&1)
+    local result=$?
+    set -e
+    if [ "$result" != "0" ]; then
+      echo "$utils_up_output"
+      exit $result
+    fi
+  fi
+}
+
+exec_in_utils() {
+  ensure_utils_is_running
+  docker compose exec -T utils "$@"
+}
+
+exec_in_utils_as_root() {
+  ensure_utils_is_running
+  docker compose exec -T --user root utils "$@"
+}
+
+##
+## Check if license and save it if valid
+##
+read_license() {
+  if [ -z "$FLEIO_LICENSE_ID" ] || [ -z "$FLEIO_LICENSE_KEY" ]; then
+    echo
+    echo "Enter your license ID (e.g yupn5yilio3qiquw) and your license key" \
+      "(e.g. WERPWMMKIF24HV7WOPUJMQRJADHXYBJOIL2LWMJVX8CGWYWYCXORA2TACHN90OPGEIWXX===)"
+    echo
+  fi
+  if [ -z "$FLEIO_LICENSE_ID" ]; then
+    while true; do
+      echo -n "  Fleio license ID: "
+      read -r FLEIO_LICENSE_ID
+
+      if [ "${#FLEIO_LICENSE_ID}" -eq 16 ]; then
+        break
+      else
+        echo "Error: Invalid license ID. The license ID must have 16 characters." >&2
+      fi
+    done
+  fi
+
+  if [ -z "$FLEIO_LICENSE_KEY" ]; then
+    while true; do
+      echo -n "  Fleio license key: "
+      read -r FLEIO_LICENSE_KEY
+
+      if [ "${#FLEIO_LICENSE_KEY}" -ge 30 ]; then
+        break
+      else
+        echo "Error: Invalid license key. The license key must have at least 30 characters." >&2
+      fi
+    done
+  fi
+}
+
+##
+## Check if license and save it if valid
+## $1 - Fleio version
+##
+validate_license() {
+  local fleio_version="$1"
+  local disable_interactive_login=$2
+  local user_option=""
+  local password_option=""
+
+  if [[ "$(is_ci_version $fleio_version)" != "1" ]]; then
+    set +e
+    echo "$FLEIO_LICENSE_KEY" | \
+      $AS_FLEIO docker -l error login --username "$FLEIO_LICENSE_ID" --password-stdin $FLEIO_DOCKER_HUB
+    LICENSE_CHECK_RESULT=$?
+    set -e
+  else
+    if [ -n "$FLEIO_REGISTRY_USER" ]; then
+      user_option="-u $FLEIO_REGISTRY_USER"
+    fi
+    if [ -n "$FLEIO_REGISTRY_PASSWORD" ]; then
+      password_option="-p $FLEIO_REGISTRY_PASSWORD"
+    fi
+    if [[ -z $disable_interactive_login ]] || [[ ! -z "$user_option" && ! -z "$password_option" ]]; then
+      # attempt to login to test registry only if user and password is set
+      $AS_FLEIO docker login $user_option $password_option $FLEIO_DOCKER_HUB
+    fi
+    LICENSE_CHECK_RESULT=0
+  fi
+}
+
+##
+## Check if license input is valid
+## $1 - Fleio version
+##
+validate_license_input() {
+  local fleio_version="$1"
+  local disable_interactive_login=$2
+  validate_license "$fleio_version" $disable_interactive_login
+  if [ "$LICENSE_CHECK_RESULT" -ne 0 ]; then
+    echo "invalid"
+  else
+    echo "valid"
+  fi
+}
+
+
+##
+## If license file exists, try to login
+## $1 - Fleio version
+##
+login_from_license_file() {
+  local fleio_version="$1"
+  if $AS_FLEIO test -f $LICENSE_FILE ; then
+    # shellcheck source=/dev/null
+    source $LICENSE_FILE
+    validate_license "$fleio_version"
+  fi
+}
+
+##
+## Save license to file
+##
+save_license() {
+  local license_details="FLEIO_LICENSE_ID=\"$FLEIO_LICENSE_ID\"
+FLEIO_LICENSE_KEY=\"$FLEIO_LICENSE_KEY\"
+"
+  echo -e "$license_details" | $AS_FLEIO tee $LICENSE_FILE > /dev/null
+
+  # ensure license file is owned by fleio user even if this is executed as root
+  chown fleio:docker $LICENSE_FILE
+}
+
+##
+## Reads license key from file, if present, otherwise from user input.
+## Validate the license against docker registry.
+## $1 - Fleio version
+##
+read_and_validate_license_key() {
+  local fleio_version="$1"
+  if $AS_FLEIO test -f $LICENSE_FILE ; then
+    # shellcheck source=/dev/null
+    source $LICENSE_FILE
+    validate_license "$fleio_version"
+    if [ "$LICENSE_CHECK_RESULT" -ne 0 ]; then
+      echo "Error: License authentication failed. License ID or key are invalid or expired." >&2
+      read_license
+      validate_license "$fleio_version"
+      if [ "$LICENSE_CHECK_RESULT" -eq 0 ]; then
+        save_license
+      else
+        echo "Error: License authentication failed. License ID or key are invalid or expired." >&2
+        echo "       If you have an active license and need help, contact support." >&2
+        exit 1
+      fi
+    fi
+  else
+    read_license
+    validate_license "$fleio_version"
+    if [ "$LICENSE_CHECK_RESULT" -eq 0 ]; then
+      save_license
+    else
+      echo "Error: License authentication failed. License ID or key are invalid or expired." >&2
+      echo "       If you have an active license and need help, contact support." >&2
+      exit 1
+    fi
+  fi
+}
+
+get_fleio_edition() {
+  local license_key="$1"
+
+  if [ -z "$license_key" ]; then
+    # license key not supplied, check if we have a license file
+    if [ -f "$LICENSE_FILE" ]; then
+      # license file exists, use current license key
+      # shellcheck disable=SC1090
+      source "$LICENSE_FILE"
+      if [ -n "$FLEIO_LICENSE_KEY" ]; then
+        license_key="$FLEIO_LICENSE_KEY"
+      fi
+    fi
+  fi
+
+  local fleio_edition="full"
+  if [[ -z $license_key ]]; then
+    fleio_edition="unknown"
+  elif [[ "$license_key" == *=WE ]]; then
+    fleio_edition="web"
+  elif [[ "$license_key" == *=OE ]]; then
+    fleio_edition="openstack"
+  fi
+
+  echo $fleio_edition
+}
+
+##
+## Pulls utils image and copies install scripts
+## $1 - version
+##
+pull_install_scripts() {
+  local version="$1"
+
+  $AS_FLEIO mkdir -p /home/fleio/compose
+
+  if [ ! -f /home/fleio/compose/docker-compose.override.yml ]; then
+    {
+      echo "# Add here your Docker Compose customizations";
+      echo "# docker-compose.override.yml is not overwritten by Fleio";
+      echo "# (while docker-compose.yml may be OVERWRITTEN on Fleio upgrades)";
+      echo "";
+    } | $AS_FLEIO tee /home/fleio/compose/docker-compose.override.yml > /dev/null
+  fi
+
+  if [ "$USE_LOCAL_FLEIO_CMD" != "1" ]; then
+    # is not using existing local scripts, copy them from image
+    $AS_FLEIO mkdir -p $FLEIO_BIN_DIR
+
+    local fleio_edition=$(get_fleio_edition $FLEIO_LICENSE_KEY)
+    edition_suffix=""
+    if [ "$fleio_edition" = "web" ]; then
+      edition_suffix="_web"
+    fi
+    if [ "$fleio_edition" = "openstack" ]; then
+      edition_suffix="_openstack"
+    fi
+
+    local utils_image="$FLEIO_DOCKER_HUB/fleio_utils$edition_suffix$(get_release_suffix $version)"
+    $AS_FLEIO docker pull "$utils_image"
+    local utils_container=$($AS_FLEIO docker create "$utils_image" --entrypoint=/bin/true)
+    # copy install scripts from image
+    $AS_FLEIO docker cp "$utils_container:/var/webapps/fleio/utils/bin/fleio" $FLEIO_BIN_DIR/fleio
+    set +e
+    $AS_FLEIO docker cp "$utils_container:/var/webapps/fleio/utils/bin/utils" $FLEIO_BIN_DIR/utils 2> /dev/null
+    $AS_FLEIO docker cp "$utils_container:/var/webapps/fleio/utils/bin/fleio-completion.bash" \
+      "$FLEIO_BIN_DIR/fleio-completion.bash" 2> /dev/null
+    set -e
+    $AS_FLEIO chmod +x $FLEIO_BIN_DIR/fleio
+    $AS_FLEIO docker cp "$utils_container:/var/webapps/fleio/utils/templates/env_template" \
+      /home/fleio/compose/env_template
+    $AS_FLEIO docker rm "$utils_container" > /dev/null
+  fi
+}
+
+pull_images() {
+  echo " * Downloading images"
+  docker compose pull
+}
+
+##
+## $1 - the Fleio version
+## $2 - release suffix, if present fleio version will be ignored
+##
+create_compose_yamls() {
+  local fleio_version="$1"
+  local release_suffix="$2"
+  local fleio_edition=$(get_fleio_edition $FLEIO_LICENSE_KEY)
+
+  edition_suffix=""
+  if [ "$fleio_edition" = "web" ]; then
+    edition_suffix="_web"
+  fi
+  if [ "$fleio_edition" = "openstack" ]; then
+    edition_suffix="_openstack"
+  fi
+
+  if [ -z "$release_suffix" ]; then
+    utils_image="$FLEIO_DOCKER_HUB/fleio_utils$edition_suffix$(get_release_suffix $fleio_version)"
+  else
+    utils_image="$FLEIO_DOCKER_HUB/fleio_utils$edition_suffix$release_suffix"
+  fi
+
+  local compose_content
+  compose_content="$($AS_FLEIO docker run -i --rm $utils_image /scripts/initfleio -e $fleio_edition compose $FLEIO_SSL_OPTION)"
+  # in case the script above fails, process exit here, leaving docker-compose.yml file empty,
+  # or leaving the previous compose file unaffected in case of switch edition on change license
+  generate_compose_result=$?
+  if [ "$generate_compose_result" -ne "0" ]; then
+    echo "ERROR: Failed to generate compose file, aborting !!!"
+    exit 1
+  fi
+  echo "$compose_content" > ./docker-compose.yml
+}
+
+##
+## Remove orphan containers
+## $1 - the Fleio edition (full, openstack, web)
+##
+remove_orphans() {
+  local fleio_edition="$1"
+
+  # web yaml won't contain updated container anymore, remove orphan updated
+  if [ "$fleio_edition" == "web" ]; then
+    fleio_updated_container="$(docker ps -aq --no-trunc --filter name=fleio-updated)"
+    if [ ! -z "$fleio_updated_container" ]; then
+      docker stop "$fleio_updated_container"
+      docker rm "$fleio_updated_container"
+    fi
+  fi
+}
+
+##
+## Create initial database structure, if tables do not already exist
+##
+init_database() {
+  docker compose up -d db
+  set +e
+  docker rm -f fleio_backend_initdb 2> /dev/null
+  set -e
+  docker compose run --no-deps -T --name fleio_backend_initdb --rm backend /var/webapps/fleio/scripts/initdb
+}
+
+##
+## Create initial database structure, if tables do not already exist
+##
+migrate_database() {
+  docker compose up -d db
+  set +e
+  docker rm -f fleio_backend_initdb 2> /dev/null
+  set -e
+  docker compose run --no-deps -T --name fleio_backend_initdb --rm backend /var/webapps/fleio/scripts/migrate
+}
+
+build_images() {
+  echo " * Building custom images"
+  docker compose build
+}
+
+# shellcheck disable=SC2120
+start_services() {
+  echo " * Starting services"
+  docker compose up -d utils
+  exec_in_utils /scripts/manage enable-periodic-tasks
+  docker compose up -d "$@"
+}
+
+function restart_after_license() {
+  local tasks="$1"
+
+  if docker compose ps --services --status running | grep -wq db; then
+    if [ "$tasks" == "--no-wait" ]; then
+      exec_in_utils /scripts/manage disable-periodic-tasks --no-wait
+    elif [ ! "$tasks" == "--no-disable" ]; then
+      exec_in_utils /scripts/manage disable-periodic-tasks
+    fi
+  else
+    echo " * Database container is stopped, disable periodic tasks skipped"
+  fi
+
+  set +e
+  if docker compose ps --services --status running | grep -wq celery; then
+    echo " * Restarting celery"
+    docker compose exec -T celery ../env/bin/celery --app fleio control shutdown 2> /dev/null
+  else
+    echo " * celery not running, starting"
+    docker compose up -d celery
+  fi
+
+  if docker compose ps --services --status running | grep -wq backend; then
+    echo " * Restarting backend"
+    docker compose restart backend
+  else
+    echo " * backend not running, starting"
+    docker compose up -d backend
+  fi
+  set -e
+
+  exec_in_utils /scripts/manage enable-periodic-tasks
+}
+
+# shellcheck disable=SC2120
+function stop_services() {
+  local tasks="$1"
+  local force="$2"
+
+  if docker compose ps --services --status running | grep -wq db ; then
+    if [ "$tasks" == "--no-wait" ]; then
+      exec_in_utils /scripts/manage disable-periodic-tasks --no-wait
+    elif [ ! "$tasks" == "--no-disable" ]; then
+      exec_in_utils /scripts/manage disable-periodic-tasks
+    fi
+  else
+    echo " * Database container is stopped, disable periodic tasks skipped"
+  fi
+
+  orphan_containers=$(diff <(docker compose ps -a --status running | awk '{ print $1}') <(docker compose ps | awk '{ print $1}')) || true
+
+  if [ "$force" == "--force" ]; then
+    command="docker compose down --remove-orphans"
+  else
+    if [ -n "$orphan_containers" ]; then
+      echo -n " Orphaned containers detected, do you wish to continue with force stop? [Y/n]: "
+      read -r continue
+      if [ -z "$continue" ] || [ "${continue,,}" == "y" ]; then
+       command="docker compose down --remove-orphans"
+      else
+        return 1
+      fi
+    else
+      command="docker compose down"
+    fi
+  fi
+
+  set +e
+  $command
+  exit_code="$?"
+  set -e
+  if [ "$exit_code" != "0" ]; then
+    echo " Failed to stop containers. Restarting ..."
+    start_services
+    return 1
+  fi
+}
+
+##
+## Update the license in Fleio
+##
+set_license() {
+  echo " * Setting license"
+
+  if [ ! "$1" == "do not source" ]; then
+    # shellcheck disable=SC1090
+    source "$LICENSE_FILE"
+  fi
+  # do not exit even if set license fails
+  set +e
+  exec_in_utils /var/webapps/fleio/scripts/refresh_license "$FLEIO_LICENSE_KEY" > /dev/null
+  local license_result="$?"
+  set -e
+  if [ "$license_result" -ne 0 ]; then
+    echo "Error: License setting failed. Aborting ..." >&2
+    echo "Use 'fleio license' command to set a new license" >&2
+    if [ ! "$1" == "do not source" ]; then
+      rm -rf "$LICENSE_FILE"
+    fi
+    return 2
+  fi
+}
+
+refresh_license() {
+  echo " * Refreshing license"
+  # do not exit even if refresh license fails
+  set +e
+  exec_in_utils /var/webapps/fleio/scripts/refresh_license
+  local license_result="$?"
+  set -e
+  if [ "$license_result" -ne 0 ]; then
+    echo "Error: License refresh failed. Aborting ..." >&2
+    exit 2
+  fi
+}
+
+#!/bin/bash
+
+get_binary_path() {
+  set +e
+  command -v "$1" 2>/dev/null
+  set -e
+}
+
+get_os_distro() {
+	distro=""
+	if [ -r /etc/os-release ]; then
+		distro="$(. /etc/os-release && echo "$ID")"
+	fi
+	echo "$distro"
+}
+
+get_os_version() {
+	version=""
+	if [ -r /etc/os-release ]; then
+		version="$(. /etc/os-release && echo "$VERSION_ID")"
+	fi
+	echo "$version"
+}
+
+get_docker_version() {
+	version=""
+  if [ -n "$(get_binary_path docker)" ]; then
+    version=$(docker -v | awk '{ print $3 }' | sed s/,//g)
+  fi
+	echo "$version"
+}
+
+version_lt() {
+  if [ -z "$2" ]; then
+    # empty string means latest version
+    echo "yes"
+    return
+  fi
+  current_version=$(echo "$1" | awk -F. '{ printf("%02d.%02d.%02d", $1, $2, $3) }')
+  target_version=$(echo "$2" | awk -F. '{ printf("%02d.%02d.%02d", $1, $2, $3) }')
+
+  if [[ "$current_version" < "$target_version" ]]; then
+    echo "yes"
+    return
+  fi
+
+  echo "no"
+}
+
+is_supported_os() {
+  local distro=$1
+  local version=$2
+  local result="no"
+  case $distro in
+    ubuntu)
+      if [[ $version =~ ^(24\.04|22\.04|20\.04|18\.04)$ ]]; then
+        result="yes"
+      fi
+      ;;
+    centos)
+      if [[ $version == "9" ]]; then result="yes"; fi
+      ;;
+    rhel|rocky|almalinux)
+      if [[ $version == "9" ]] || [[ $version =~ ^9\.[0-9]$ ]] || [[ $version == "10" ]] || [[ $version =~ ^10\.[0-9]$ ]]; then
+        result="yes"
+      fi
+      ;;
+    debian)
+      if [[ $version == "12" ]] || [[ $version == "13" ]]; then
+        result="yes";
+      fi
+      ;;
+  esac
+  echo $result
+}
+
+check_if_docker_can_run() {
+  echo " * Testing if we can run a docker container"
+  # test if we can run containers
+  set +e
+  docker run --rm python:3.13.6-slim-bookworm /bin/true
+  result=$?
+  set -e
+  if [ "$result" -ne 0 ]; then
+    echo "" >&2
+    echo "Error: Failed to run docker container." >&2
+
+    if [ "$(head -1 /proc/1/cgroup | cut -f3 -d':')" != "" ]; then
+      echo "" >&2
+      echo "It looks like you're trying to run Fleio docker containers in a container." >&2
+      echo "Check your container documentation. You probably need to enable security.nesting." >&2
+      echo "" >&2
+    fi
+    exit 1
+  else
+    echo "Docker container run succeeded."
+  fi
+}
+
+docker_version_error() {
+  exit_code=$?
+  docker_version=$1
+  docker_compose_version=$2
+  if [ $exit_code -eq 1 ]; then
+    echo "Error: docker version $docker_version not found, using latest version"
+  elif [ $exit_code -eq 2 ]; then
+    echo "Error: docker compose version $docker_compose_version not found, using latest version"
+  else
+    echo "Error: docker version $docker_version not found, using latest version"
+    echo "Error: docker compose version $docker_compose_version not found, using latest version"
+  fi
+}
+
+get_package_names() {
+  distro=$1
+  docker_version=$2
+  docker_compose_version=$3
+  if [ -z "$docker_version" ]; then
+    # empty string means latest version
+    echo "docker-ce docker-ce-cli containerd.io docker-compose-plugin"
+    return
+  fi
+
+  case $distro in
+    ubuntu|debian)
+      package_version=$(apt-cache madison docker-ce | grep "$docker_version" | awk '{ print $3 }')
+      if [ -n "$package_version" ]; then
+        package_version="=$package_version"
+      fi
+      compose_package_version=$(apt-cache madison docker-compose-plugin | grep "$docker_compose_version" | awk '{ print $3 }' | head -1)
+      if [ -n "$compose_package_version" ]; then
+        compose_package_version="=$compose_package_version"
+      fi
+      echo "docker-ce$package_version docker-ce-cli$package_version containerd.io docker-compose-plugin$compose_package_version"
+      if [ -z "$package_version" ] && [ -z "$compose_package_version" ]; then
+        exit 3
+      elif [ -z "$compose_package_version" ]; then
+        exit 2
+      elif [ -z "$package_version" ]; then
+        exit 1
+      fi
+      ;;
+    centos|rhel|rocky|almalinux)
+      package_version=$(dnf list docker-ce --showduplicates | grep "$docker_version" | awk '{ print $2 }' | awk -F: '{ print $NF }')
+      if [ -n "$package_version" ]; then
+        package_version="-$package_version"
+      fi
+      compose_package_version=$(dnf list docker-compose-plugin --showduplicates --quiet | grep -v 'Available Packages' | grep "$docker_compose_version" | awk '{ print $2 }' | awk -F: '{ print $NF }' | head -1)
+      if [ -n "$compose_package_version" ]; then
+        compose_package_version="-$compose_package_version"
+      fi
+      echo "docker-ce$package_version docker-ce-cli$package_version containerd.io docker-compose-plugin$compose_package_version"
+      if [ -z "$package_version" ] && [ -z "$compose_package_version" ]; then
+        exit 3
+      elif [ -z "$compose_package_version" ]; then
+        exit 2
+      elif [ -z "$package_version" ]; then
+        exit 1
+      fi
+      ;;
+  esac
+}
+
+install_docker() {
+  distro=$1
+  docker_version=$2
+  docker_compose_version=$3
+  case $distro in
+    ubuntu)
+      # refresh packages
+      apt-get update
+      # install prerequisites
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg lsb-release >/dev/null
+      # add docker key
+      mkdir -p /etc/apt/keyrings && chmod -R 0755 /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      chmod a+r /etc/apt/keyrings/docker.gpg
+      echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+        $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      apt-get update > /dev/null
+      package_names=$(get_package_names "$distro" "$docker_version" "$docker_compose_version") || \
+          docker_version_error "$docker_version" "$docker_compose_version"
+      # shellcheck disable=SC2086
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $package_names
+      ;;
+    debian)
+      # refresh packages
+      apt-get update
+      # install prerequisites
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg lsb-release >/dev/null
+      # add docker key
+      mkdir -p /etc/apt/keyrings && chmod -R 0755 /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      chmod a+r /etc/apt/keyrings/docker.gpg
+      echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+        $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      apt-get update > /dev/null
+      package_names=$(get_package_names "$distro" "$docker_version" "$docker_compose_version") || \
+          docker_version_error "$docker_version" "$docker_compose_version"
+      # shellcheck disable=SC2086
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $package_names
+      ;;
+    centos|rhel|rocky|almalinux)
+      dnf -y install dnf-plugins-core
+      # also use centos packages for rhel as in https://docs.docker.com/engine/install/rhel/#prerequisites
+      dnf-3 config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      package_names=$(get_package_names "$distro" "$docker_version" "$docker_compose_version") || \
+          docker_version_error "$docker_version" "$docker_compose_version"
+      # shellcheck disable=SC2086
+      dnf install -y -q $package_names
+      ;;
+  esac
+
+  if [ "$(systemctl is-enabled docker >/dev/null 2>&1; echo $?)" != "0" ]; then
+    # docker service does not start in system boot, let's enable it
+    systemctl enable docker
+  fi
+
+  if [ "$(systemctl is-active docker >/dev/null 2>&1; echo $?)" != "0" ]; then
+    # start docker service
+    systemctl start docker || (echo "Error: unable to start docker service, please restart the machine and run installer again!" && exit 1)
+  fi
+
+  # Fix CentOS 8 DNS resolve requests from within containers
+  if [ "$(get_binary_path 'firewall-cmd')" != "" ]; then
+    if [ "$(firewall-cmd --query-masquerade)" != "yes" ]; then
+      firewall-cmd --zone=public --add-masquerade --permanent
+      firewall-cmd --reload
+    fi
+  fi
+}
+
+function install_docker_compose_plugin(){
+  docker_compose_version=$1
+  local distro=$1
+  case $distro in
+    ubuntu|debian)
+      apt-get update > /dev/null
+      compose_package_version=$(apt-cache madison docker-compose-plugin | grep "$docker_compose_version" | awk '{ print $3 }' | head -1)
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "docker-compose-plugin=$compose_package_version"
+      ;;
+    centos|rhel)
+      dnf update > /dev/null
+      compose_package_version=$(dnf list docker-compose-plugin --showduplicates --quiet | grep -v 'Available Packages' | grep "$docker_compose_version" | awk '{ print $2 }' | awk -F: '{ print $NF }' | head -1)
+      dnf install -y -q "docker-compose-plugin-$docker_compose_version"
+      ;;
+  esac
+}
+
+function check_and_install_docker_compose_plugin() {
+  docker_compose_version=$1
+  if ! docker compose > /dev/null 2>&1; then
+    echo "* docker-compose-plugin is not installed, installing"
+    # shellcheck disable=SC2155
+    local distro=$(get_os_distro)
+    install_docker_compose_plugin "$distro" "$docker_compose_version"
+
+    # check if docker compose was installed succesfully
+    if ! docker compose > /dev/null 2>&1; then
+      echo "* failed to install docker-compose-plugin, please install them manually and rerun operation"
+      exit 1
+    fi
+ fi
+}
+
+##
+## This function checks if docker-compose-plugin is installed and if not abort operation.
+## This function should be called from non root user to ensure we have docker and docker compose available
+## Note that check for docker-compose-plugin will also check if docker is installed
+##
+function check_abort_if_docker_compose_plugin_missing() {
+  if docker compose > /dev/null 2>&1; then
+    # docker-compose-plugin is installed
+    echo "* docker-compose-plugin is installed"
+  else
+    # docker-compose-plugin is not installed
+    echo "* docker or docker-compose-plugin is not installed, please install them manually and rerun operation"
+    exit 1
+  fi
+}
+
+upgrade_docker() {
+  distro=$1
+  docker_version=$2
+  docker_compose_version=$3
+  case $distro in
+    ubuntu)
+      apt-get update > /dev/null
+      package_names=$(get_package_names "$distro" "$docker_version" "$docker_compose_version") || \
+          docker_version_error "$docker_version" "$docker_compose_version"
+
+      # shellcheck disable=SC2086
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $package_names && systemctl restart docker
+      ;;
+    debian)
+      apt-get update > /dev/null
+      package_names=$(get_package_names "$distro" "$docker_version" "$docker_compose_version") || \
+          docker_version_error "$docker_version" "$docker_compose_version"
+      # shellcheck disable=SC2086
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $package_names && systemctl restart docker
+      ;;
+    centos|rhel|rocky|almalinux)
+      package_names=$(get_package_names "$distro" "$docker_version" "$docker_compose_version") || \
+          docker_version_error "$docker_version" "$docker_compose_version"
+      # shellcheck disable=SC2086
+      dnf install -y -q $package_names && systemctl restart docker
+      ;;
+  esac
+}
+
+get_target_docker_version() {
+  fleio_version=$1
+  if [ -z "$fleio_version" ]; then
+    # no Fleio version specified, return empty target version (latest version)
+    return
+  fi
+  curl -fSs -o docker-versions-map.txt "${FLEIO_HOME_URL}/docker-versions-map.txt"
+
+  if [ ! -f docker-versions-map.txt ]; then
+    touch docker-versions-map.txt
+  fi
+
+  target_version=$(grep "$fleio_version" < "docker-versions-map.txt" | awk -F: '{ print $2 }')
+
+  rm docker-versions-map.txt
+  echo "$target_version"
+}
+
+get_target_docker_compose_version() {
+  fleio_version=$1
+  if [ -z "$fleio_version" ]; then
+    # no Fleio version specified, return empty target version (latest version)
+    return
+  fi
+  curl -fSs -o docker-compose-versions-map.txt "${FLEIO_HOME_URL}/docker-compose-versions-map.txt"
+
+  if [ ! -f docker-compose-versions-map.txt ]; then
+    touch docker-compose-versions-map.txt
+  fi
+
+  target_version=$(grep "$fleio_version" < "docker-compose-versions-map.txt" | awk -F: '{ print $2 }')
+
+  rm docker-compose-versions-map.txt
+  echo "$target_version"
+}
+
+is_latest_version() {
+  distro=$1
+  docker_version=$2
+
+  case $distro in
+    ubuntu|debian)
+      apt-get update > /dev/null
+      latest_version=$(apt-cache madison docker-ce | head -n 1 | awk '{ print $3 }')
+      ;;
+    centos|rhel|rocky|almalinux)
+      dnf check-update > /dev/null
+      latest_version=$(dnf list docker-ce | tail -n1 | awk '{ print $2 }')
+      ;;
+  esac
+
+  if [[ $latest_version == *"$docker_version"* ]]; then
+    echo "yes"
+  else
+    echo "no"
+  fi
+}
+
+check_and_upgrade_docker_install() {
+  error_on_not_root "Cannot install/upgrade docker from non root user"
+  echo '* Checking linux distribution'
+  os_distro=$(get_os_distro)
+  os_version=$(get_os_version)
+  target_version=$1
+  target_compose_version=$2
+  target_version_display=$target_version
+  if [ -z "$target_version_display" ]; then
+    target_version_display="latest"
+  fi
+  target_compose_version_display=$target_compose_version
+  if [ -z "$target_compose_version_display" ]; then
+    target_compose_version_display="latest"
+  fi
+
+  if [ -z "$(get_docker_version)" ]; then
+    if [ "$(is_supported_os "$os_distro" "$os_version")" != "yes" ]; then
+      echo "* Docker is not installed"
+      echo "* This distribution is not supported, please upgrade docker & docker-compose-plugin manually then rerun"
+      return 1
+    fi
+    if [ "$target_version_display" == "latest" ]; then
+      echo "* Docker is not installed, installing $target_version_display docker and docker compose plugin versions"
+    else
+      echo "* Docker is not installed, installing docker version $target_version_display and" \
+        "docker compose plugin version $target_compose_version_display"
+    fi
+    install_docker "$os_distro" "$target_version" "$target_compose_version"
+    check_if_docker_can_run
+  else
+    if [ "$target_version_display" == "latest" ]; then
+      echo "* Docker is installed, checking if we need to upgrade to $target_version_display version"
+    else
+      echo "* Docker is installed, checking if we need to upgrade to version $target_version_display"
+    fi
+    docker_version=$(get_docker_version)
+    if [ "$(is_latest_version "$os_distro" "$docker_version")" == "yes" ]; then
+      echo "* Latest version of docker is installed"
+    elif [ "$(version_lt "$docker_version" "$target_version")" == "yes" ]; then
+      if [ "$(is_supported_os "$os_distro" "$os_version")" != "yes" ]; then
+        echo "* Docker is not upgraded to $target_version_display"
+        echo "* This distribution is not supported, please upgrade docker & docker-compose-plugin manually then rerun"
+        return 1
+      fi
+
+      if [ "$FORCE_ARG" != "--force" ]; then
+        echo -n "  Upgrading docker from version $docker_version to $target_version_display and" \
+          "docker compose version to $target_compose_version_display. Do you want to proceed?" \
+          "[Y/n]: "
+        read -r upgrade_confirmed
+      else
+        upgrade_confirmed="y"
+      fi
+
+      if [ -z "$upgrade_confirmed" ] || [ "${upgrade_confirmed,,}" == "y" ]; then
+        if [ "$target_version_display" == "latest" ]; then
+          echo "* Upgrading docker and docker compose plugin to latest version"
+        else
+          echo "* Upgrading docker to version $target_version_display and" \
+            "docker compose plugin to version $target_compose_version_display"
+        fi
+        upgrade_docker "$os_distro" "$target_version" "$target_compose_version"
+      else
+        if [ -z "$target_version" ]; then
+          echo "* Docker upgrade skipped, you should upgrade manually as soon as possible"
+        else
+          echo "* Docker version $target_version_display is required, aborting"
+          exit 1
+        fi
+      fi
+    else
+      echo "* You have version $docker_version installed, no need to upgrade"
+    fi
+
+    check_and_install_docker_compose_plugin "$target_compose_version"
+  fi
+}
+
+estimate_database_dump_size() {
+  query="SELECT total_bytes, total_bytes/POWER(1024,2) total_megabytes
+        FROM (SELECT SUM(data_length) total_bytes FROM information_schema.tables WHERE table_schema LIKE 'fleio') A\G"
+  db_pass="$(cat $MYSQL_PASS_FILE)"
+  query_result=$(docker compose exec db mysql --database='fleio' -u fleio -p"$db_pass" --execute "$query" | grep total_megabytes)
+  database_size=$(echo "$query_result"| awk -F : '{print $2}' | tr -d '[:space:]')
+
+  echo "$database_size"
+}
+
+get_disk_size() {
+  path="$1"
+  disk_size=$(df -m "$path" | tail -n +2 | awk '{ print $4 }')
+  echo "$disk_size"
+}
+
+adjust_destination_file_path() {
+  file_path=$1
+  startup_path=$2
+
+  if [[ -z $file_path ]]; then
+    file_path="fleio-$(date +%Y-%m-%d-%H%M%S).sql"
+  fi
+
+  if [[ "$file_path" != *"/"* ]]; then
+    file_path="$FLEIO_HOME_DIR/backup/$file_path"
+  else
+    if [[ "$file_path" != "/"* ]]; then
+      file_path="$startup_path/$file_path"
+    fi
+  fi
+
+  if [[ "$file_path" != *.gz ]]; then
+    file_path="$file_path.gz"
+  fi
+
+  readlink -f "$file_path"
+}
+
+adjust_source_file_path() {
+  file_path=$1
+  startup_path=$2
+
+  if [[ "$file_path" != *"/"* ]]; then
+    if [ -f "$FLEIO_HOME_DIR/backup/$file_path" ]; then
+      file_path="$FLEIO_HOME_DIR/backup/$file_path"
+    fi
+  else
+    if [[ "$file_path" != "/"* ]]; then
+      if [ -f "$startup_path/$file_path" ]; then
+        file_path="$startup_path/$file_path"
+      fi
+    fi
+  fi
+
+  readlink -f "$file_path"
+}
+
+can_backup() {
+  file_path="$1"
+  dir_name=$(dirname "$file_path")
+
+  if [ "$dir_name" == "." ]; then
+    dir_name="$FLEIO_HOME_DIR/backup"
+  fi
+
+  disk_size=$(get_disk_size "$dir_name")
+  database_size=$(estimate_database_dump_size)
+
+  # shellcheck disable=SC2046
+  if [ $(echo "${database_size} > ${disk_size}" | exec_in_utils bc) == "1" ]; then
+    echo "no"
+    return
+  fi
+
+  echo "yes"
+}
+
+backup_create() {
+  mkdir -p $FLEIO_BACKUP_DIR
+
+  if [[ $(get_binary_path "gzip") == "" ]]; then
+    echo "Error: gzip command not found, aborting backup"
+    exit 1
+  fi
+
+  file_path=$1
+  startup_path=$2
+
+  file_path=$(adjust_destination_file_path "$file_path" "$startup_path")
+
+  # start utils & db container
+  ensure_utils_is_running
+
+  # wait for database to be available
+  RETRIES=0
+  until [ "$RETRIES" -ge 60 ]
+  do
+    docker compose exec db mysqladmin ping -h db -u fleio --password="$FLEIO_DB_PASSWORD" --silent && break
+    if [ "$RETRIES" -eq "0" ]; then
+      echo " * Waiting for database connection ..."
+    fi
+    RETRIES=$((RETRIES+1))
+    sleep 1
+  done
+
+  if [ "$RETRIES" -ge 60 ]; then
+    echo "Failed to connect to database server."
+    exit 2
+  fi
+
+  if [ "$(can_backup "$file_path")" == "yes" ]; then
+    echo " * Backing up fleio database to '$file_path'"
+    db_pass="$(cat $MYSQL_PASS_FILE)"
+    set +e -o pipefail
+    docker compose exec -T db mysqldump -u fleio -p"$db_pass" fleio | gzip > "$file_path"
+    exit_code="$?"
+    set -e +o pipefail
+    if [ "$exit_code" != "0" ]; then
+      echo "Error: could not create backup"
+      exit 1
+    fi
+
+  else
+    echo "Error: not enough space to create backup, aborting"
+    exit 1
+  fi
+}
+
+backup_list() {
+  ls --color=never --width=1 $FLEIO_BACKUP_DIR/*.gz
+}
+
+backup_restore() {
+  if [[ $(get_binary_path "gunzip") == "" ]]; then
+    echo "Error: gunzip command not found, aborting"
+    return
+  fi
+
+  file_path=$1
+  startup_path=$2
+  force_arg=$3
+  no_restart_arg=$4
+
+  if [[ "$file_path" != *.gz ]]; then
+    echo "Error: '$file_path' is not a .gz file, aborting"
+    return
+  fi
+
+  file_path=$(adjust_source_file_path "$file_path" "$startup_path")
+
+  if [[ "$file_path" != *.gz ]]; then
+    file_path="$file_path.gz"
+  fi
+
+  if [ -f "$file_path" ]; then
+    echo " * Restoring fleio database from '$file_path'"
+    if [ "$force_arg" != "--force" ]; then
+      echo -n " This will require a Fleio restart. Do you want to proceed? [Y/n]: "
+      read -r restore_confirmation
+    else
+      restore_confirmation="y"
+    fi
+
+    if [ -z "$restore_confirmation" ] || [ "${restore_confirmation,,}" == "y" ]; then
+      # shellcheck disable=SC2119
+      if [ "$no_restart_arg" != "--no-restart" ]; then
+        # no need to gracefully stop services since db will be overwritten
+        stop_services --no-disable --force
+      else
+        echo " * Skipping stop services ..."
+      fi
+      echo " * Starting db container ..."
+      docker compose up --wait -d db
+      db_pass="$(cat $MYSQL_PASS_FILE)"
+
+      RETRIES=0
+      until [ "$RETRIES" -ge 60 ]
+      do
+        docker compose exec db mysqladmin ping -h db -u fleio --password="$FLEIO_DB_PASSWORD" --silent && break
+        if [ "$RETRIES" -eq "0" ]; then
+          echo " * Waiting for database connection ..."
+        fi
+        RETRIES=$((RETRIES+1))
+        sleep 1
+      done
+
+      if [ "$RETRIES" -ge 60 ]; then
+        echo "Failed to connect to database server."
+        exit 2
+      fi
+
+      echo " * Restoring backup ..."
+      fleio django reset_db --noinput
+      gunzip -c "$file_path" | docker compose exec -T db mysql -u fleio -p"$db_pass" fleio
+      if [ "$no_restart_arg" != "--no-restart" ]; then
+        fleio start
+      else
+        echo " * Skipping start services ..."
+      fi
+      echo " * Backup restored succesfully."
+      echo " * If you restored a backup created with an older version of Fleio don't forget to run 'fleio django migrate' command to update database structure."
+    fi
+  else
+    echo "Error: invalid source file '$file_path', aborting"
+    return
+  fi
+}
+
+create_healthcheck_config_file() {
+  db_pass="$(cat $MYSQL_PASS_FILE)"
+  if ! docker compose exec db bash -c "test -f /var/lib/mysql/.my-healthcheck.cnf"; then
+    echo "* Configuring mariadb healthcheck"
+    (docker compose exec -T db bash -c "cat > /var/lib/mysql/.my-healthcheck.cnf") <<EOT
+[client]
+user=root
+password=$db_pass
+EOT
+  fi
+}
+
+function generate_saml2_cert() {
+  exec_in_utils /scripts/generate-saml2-cert
+}
+
+##
+## Update settings.py
+##
+update_settings_py() {
+  docker compose run -T --name fleio_update_settings --rm \
+    utils /var/webapps/fleio/scripts/makesettings --update $DEBUG_ARG
+}
+
+##
+## External commands launch commands that need ALL arguments after the command name to be sent
+## echos "1" when external command, "0" when it is not external command
+##
+is_external_command () {
+  if [[ " bash django info manage mysql mysqldump openstack shell sync " =~ .*\ $1\ .* ]]; then
+    echo -n "1"
+  else
+    echo -n "0"
+  fi
+}
+
+##
+## If FLEIO_COMMAND is not already set, sets FLEIO_COMMAND value.
+## If FLEIO_COMMAND already contains an external command, argument is appended to EXTRA_CMD_ARGS
+## If FLEIO_COMMAND aready contains an internal command, fives error and exits.
+##
+set_command() {
+  if [ "$FLEIO_COMMAND" == "" ]; then
+    local command="$1"
+    if [ "$command" = "-h" ] || [ "$command" = "--help" ]; then
+      command="help"
+    fi
+    FLEIO_COMMAND="$command"
+  else
+    if [ $(is_external_command "$FLEIO_COMMAND") = "1" ]; then
+      EXTRA_CMD_ARGS="$EXTRA_CMD_ARGS $1"
+    else
+      echo "Error: More than one command specified. This is confusing." >&2
+      exit 1
+    fi
+  fi
+}
+

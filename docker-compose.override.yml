@@ -1,0 +1,62 @@
+# Custom Fleio Docker Compose Override
+# This file extends the official Fleio docker-compose.yml with customizations
+# It will not be overwritten during Fleio upgrades
+
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: custom-fleio-backend:latest
+    pull_policy: never
+    environment:
+      - FLEIO_CUSTOM_BRANDING=true
+      - FLEIO_NOWPAYMENTS_ENABLED=true
+      - FLEIO_CUSTOM_PAGES_ENABLED=true
+      - FLEIO_BACKUP_ENABLED=true
+    volumes:
+      - ./config:/opt/fleio-custom/config:ro
+      - ./assets:/opt/fleio-custom/assets:ro
+      - ./templates:/opt/fleio-custom/templates:ro
+      - ./scripts:/opt/fleio-custom/scripts:ro
+      - fleio-backups:/var/backups/fleio
+    depends_on:
+      - db
+      - redis
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: custom-fleio-frontend:latest
+    pull_policy: never
+    environment:
+      - FLEIO_CUSTOM_THEME=true
+      - FLEIO_DISCORD_THEME=true
+    volumes:
+      - ./assets:/opt/fleio-custom/assets:ro
+      - ./templates:/opt/fleio-custom/templates:ro
+    depends_on:
+      - backend
+
+  # Custom backup service
+  backup:
+    image: alpine:latest
+    volumes:
+      - fleio-backups:/backups
+      - ./scripts:/scripts:ro
+    environment:
+      - FLEIO_S3_BUCKET=${FLEIO_S3_BUCKET:-}
+      - FLEIO_S3_REGION=${FLEIO_S3_REGION:-us-east-1}
+      - FLEIO_S3_ACCESS_KEY=${FLEIO_S3_ACCESS_KEY:-}
+      - FLEIO_S3_SECRET_KEY=${FLEIO_S3_SECRET_KEY:-}
+    command: /scripts/backup-cron.sh
+    depends_on:
+      - db
+      - backend
+
+volumes:
+  fleio-backups:
+    driver: local

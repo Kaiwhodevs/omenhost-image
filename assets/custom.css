@@ -1,0 +1,264 @@
+/* Custom Fleio Branding CSS */
+/* OmenHost-inspired theme for Fleio hosting platform */
+
+:root {
+    --accent-color: #9680fe;
+    --background-theme: #1a1d21;
+    --secondary-bg: #2c2f33;
+    --card-bg: rgba(47, 49, 54, 0.8);
+    --border-color: #40444b;
+    --text-primary: #ffffff;
+    --text-secondary: #b9bbbe;
+    --success-color: #43b581;
+    --warning-color: #faa61a;
+    --error-color: #f04747;
+}
+
+/* Global theme overrides */
+body, .main-content {
+    background: linear-gradient(135deg, var(--background-theme) 0%, var(--secondary-bg) 100%) !important;
+    color: var(--text-primary) !important;
+    font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+}
+
+/* Navigation and header */
+.navbar, .navbar-brand, .navbar-nav {
+    background: var(--secondary-bg) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+.navbar-brand, .logo {
+    color: var(--accent-color) !important;
+    font-weight: 600 !important;
+}
+
+.navbar-nav .nav-link {
+    color: var(--text-secondary) !important;
+    transition: color 0.2s ease !important;
+}
+
+.navbar-nav .nav-link:hover {
+    color: var(--accent-color) !important;
+}
+
+/* Cards and panels */
+.card, .panel, .widget {
+    background: var(--card-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3) !important;
+}
+
+.card-header, .panel-header {
+    background: var(--secondary-bg) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Buttons */
+.btn-primary, .btn-accent {
+    background: linear-gradient(135deg, var(--accent-color) 0%, #7c3aed 100%) !important;
+    border: none !important;
+    border-radius: 6px !important;
+    color: white !important;
+    font-weight: 500 !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 4px rgba(150, 128, 254, 0.3) !important;
+}
+
+.btn-primary:hover, .btn-accent:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 8px rgba(150, 128, 254, 0.4) !important;
+}
+
+.btn-success {
+    background: var(--success-color) !important;
+    border: none !important;
+}
+
+.btn-warning {
+    background: var(--warning-color) !important;
+    border: none !important;
+}
+
+.btn-danger {
+    background: var(--error-color) !important;
+    border: none !important;
+}
+
+/* Form controls */
+.form-control, .form-select {
+    background: var(--secondary-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+    border-radius: 6px !important;
+    transition: all 0.2s ease !important;
+}
+
+.form-control:focus, .form-select:focus {
+    background: var(--secondary-bg) !important;
+    border-color: var(--accent-color) !important;
+    color: var(--text-primary) !important;
+    box-shadow: 0 0 0 0.2rem rgba(150, 128, 254, 0.25) !important;
+}
+
+.form-control::placeholder {
+    color: var(--text-secondary) !important;
+}
+
+/* Tables */
+.table {
+    color: var(--text-primary) !important;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+    background: rgba(47, 49, 54, 0.3) !important;
+}
+
+.table-hover tbody tr:hover {
+    background: rgba(150, 128, 254, 0.1) !important;
+}
+
+/* Status indicators */
+.badge-success, .status-active {
+    background: var(--success-color) !important;
+    color: white !important;
+}
+
+.badge-warning, .status-pending {
+    background: var(--warning-color) !important;
+    color: white !important;
+}
+
+.badge-danger, .status-error {
+    background: var(--error-color) !important;
+    color: white !important;
+}
+
+/* Sidebar */
+.sidebar, .nav-sidebar {
+    background: var(--secondary-bg) !important;
+    border-right: 1px solid var(--border-color) !important;
+}
+
+.sidebar .nav-link {
+    color: var(--text-secondary) !important;
+    border-radius: 6px !important;
+    margin: 2px 0 !important;
+    transition: all 0.2s ease !important;
+}
+
+.sidebar .nav-link:hover, .sidebar .nav-link.active {
+    background: var(--accent-color) !important;
+    color: white !important;
+}
+
+/* Modals */
+.modal-content {
+    background: var(--card-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+}
+
+.modal-header {
+    background: var(--secondary-bg) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+
+.modal-footer {
+    background: var(--secondary-bg) !important;
+    border-top: 1px solid var(--border-color) !important;
+}
+
+/* Alerts */
+.alert {
+    border: none !important;
+    border-radius: 6px !important;
+    color: var(--text-primary) !important;
+}
+
+.alert-success {
+    background: rgba(67, 181, 129, 0.2) !important;
+    border-left: 4px solid var(--success-color) !important;
+}
+
+.alert-warning {
+    background: rgba(250, 166, 26, 0.2) !important;
+    border-left: 4px solid var(--warning-color) !important;
+}
+
+.alert-danger {
+    background: rgba(240, 71, 71, 0.2) !important;
+    border-left: 4px solid var(--error-color) !important;
+}
+
+/* Custom pages styling */
+.discord-theme {
+    background: linear-gradient(135deg, var(--background-theme) 0%, var(--secondary-bg) 100%) !important;
+    color: var(--text-primary) !important;
+    min-height: 100vh !important;
+}
+
+.discord-theme .auth-container {
+    background: var(--card-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+.discord-theme .auth-header {
+    text-align: center !important;
+    margin-bottom: 2rem !important;
+}
+
+.discord-theme .auth-header h1 {
+    color: var(--accent-color) !important;
+    font-weight: 700 !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.discord-theme .auth-header p {
+    color: var(--text-secondary) !important;
+    margin: 0 !important;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .discord-theme .auth-container {
+        margin: 1rem !important;
+        border-radius: 8px !important;
+    }
+}
+
+/* Loading states */
+.loading-spinner {
+    border: 2px solid var(--border-color) !important;
+    border-top: 2px solid var(--accent-color) !important;
+    border-radius: 50% !important;
+    animation: spin 1s linear infinite !important;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--secondary-bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-color);
+}

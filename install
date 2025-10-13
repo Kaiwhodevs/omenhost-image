@@ -1,0 +1,537 @@
+#!/bin/bash
+
+## This script is published online and is used to install Fleio with a simple command:
+## curl -s -o install https://fleio.com/install && sudo Bash install
+## Script must be compatible with all Fleio versions. It launches `fleio install` script for version specific
+# install steps.
+
+set -e
+
+if [[ "$*" == *--debug* ]]; then
+  set -x
+  DEBUG_ARG="--debug"
+else
+  DEBUG_ARG=""
+fi
+
+if [ -z "$FLEIO_HOME_URL" ]; then
+  FLEIO_HOME_URL="https://fleio.com"
+fi
+FLEIO_VERSIONS_URL="$FLEIO_HOME_URL/versions.txt"
+
+##
+## Download and include utils Bash file
+##
+include_utils() {
+  if [ "$USE_LOCAL_FLEIO_CMD" != "1" ]; then
+    curl -s -o utils "$FLEIO_HOME_URL/utils"
+  fi
+  source ./utils
+}
+
+##
+## $1 - when equals "include_beta", it will include beta versions
+##
+get_versions() {
+  if [ "$1" = "include_beta" ]; then
+    curl -fSs $FLEIO_VERSIONS_URL
+  else
+    curl -fSs $FLEIO_VERSIONS_URL | grep -v '\.0$'
+  fi
+}
+
+get_latest_version() {
+  get_versions "$INCLUDE_BETA_VERSIONS" | head -n 1
+}
+
+get_installed_version() {
+  if [ -f "$FLEIO_VERSION_FILE" ]; then
+    cat $FLEIO_VERSION_FILE
+  fi
+}
+
+##
+## $1 - version to check if it's valid
+## prints "1" if version is valid, "0" if not valid
+validate_version() {
+  if [ "$(is_ci_version $1)" != "1" ]; then
+    if [ "$(get_versions "include_beta" | grep "$1")" = "" ]; then
+      printf "0"
+    fi
+  fi
+  printf "1"
+}
+
+##
+## $1 - a Fleio version
+## prints the Fleio release suffix based on provided version
+##
+get_release_suffix() {
+  if [ "$(is_ci_version $1)" != "1" ]; then
+    echo -n "-$1" | sed '0,/\./s//-/' | sed '0,/\./s//:/'
+  else
+    echo -n ":$1"
+  fi
+
+}
+
+##
+## on exit FLEIO_VERSION will contain version to be installed
+## or exists on parameters error
+##
+determine_version_to_install() {
+  if [ -n "$ARG_FLEIO_VERSION" ]; then
+    if [ "$INCLUDE_BETA_VERSIONS" = "include_beta" ]; then
+      echo "Error: The --include-beta flag is not needed" \
+        "and confusing when a version is specified ($ARG_FLEIO_VERSION)." >&2
+      exit 1
+    fi
+    if [ "$(validate_version "$ARG_FLEIO_VERSION")" != "1" ]; then
+      echo "Error: Version $FLEIO_VERSION not found" >&2
+      exit 1
+    fi
+    FLEIO_VERSION="$ARG_FLEIO_VERSION"
+  else
+    FLEIO_VERSION=$(get_latest_version)
+  fi
+
+  installed_version=$(get_installed_version)
+
+  if [ -n "$installed_version" ]; then
+    if [ "$installed_version" == "$FLEIO_VERSION" ]; then
+      echo " * Fleio version $installed_version is already installed"
+      echo " * Rerunning installation steps preserving settings and data"
+    else
+      echo " * Fleio version $installed_version is installed"
+      echo "  The install script will not perform an upgrade to version $FLEIO_VERSION."
+      echo "  Use \"fleio upgrade\" command if you want to upgrade Fleio."
+      echo "  If, for some reason, you want to re-run the install script, specify installed version as argument."
+      echo
+      exit 1
+    fi
+  else
+    echo " * Installing Fleio version $FLEIO_VERSION"
+  fi
+}
+
+HELP_TEXT="
+Usage: install [FLEIO_VERSION | COMMAND]
+
+Installs Fleio, gets latest Fleio version or lists available Fleio versions.
+
+Commands:
+  [version]         Installs the latest Fleio version when ran without any parameters
+                    Or installs the specified version. E.g. install 2020.10.1
+  getlatestversion  Retrieves and prints the latest Fleio version
+  getversions       Downloads and list all available Fleio versions
+
+Options:
+  -h, --help          Show help
+  -b, --include-beta  Include beta versions when installing latest version or getting versions/latest version
+                      If you specify a version when installing, this flag doesn't make sense and will result in error
+"
+
+while (( "$#" )); do
+  case "$1" in
+    help|-h|--help)
+      HELP_CMD="1"
+      shift
+      ;;
+    getlatestversion)
+      GET_LATEST_CMD="1"
+      shift
+      ;;
+    getversions)
+      GET_VERSIONS_CMD="1"
+      shift
+      ;;
+    -b|--include-beta)
+      INCLUDE_BETA_VERSIONS="include_beta"
+      shift
+      ;;
+    --local-fleio-cmd)
+      # do not copy the fleio and install shell scripts from docker image, use existing fleio scripts instead
+      USE_LOCAL_FLEIO_CMD="1"
+      shift
+      ;;
+    --debug)
+      # already handled
+      shift
+      ;;
+    -*) # unsupported flags
+      echo "Error: Unknown argument $1" >&2
+      exit 1
+      ;;
+    *) # preserve positional arguments
+      if [ -z "$ARG_FLEIO_VERSION" ]; then
+        ARG_FLEIO_VERSION="$1"
+      else
+        # version already set
+        echo "Error: Unexpected argument $1" >&2
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+##
+## Basic converter of version string to integer. Helpful to compare versions
+## E.g. "2020.01.01" -> 2020001001000. Does not provide support for version suffixes like -alpha, -beta etc.
+## $1 - version as string
+##
+ver2int() {
+  echo -n "$1" | awk -F. '{ printf("%d%03d%03d%03d\n", $1,$2,$3,$4); }'
+}
+
+get_distribution() {
+	distro=""
+	if [ -r /etc/os-release ]; then
+		distro="$(. /etc/os-release && echo "$ID")"
+	fi
+	echo "$distro"
+}
+
+##
+## Return full path of $1 binary command or empty string if command not found.
+##
+get_binary_path() {
+  set +e
+  command -v "$1" 2>/dev/null
+  set -e
+}
+
+##
+## Linux available memory
+##
+check_linux_memory() {
+  ## in case available memory is a bit under 4GB, report 4GB
+  mem=$(free -m --si | awk ' /Mem:/ {print $2}')
+  if [ "$mem" -ge 3700 ] && [ "$mem" -lt 4096 ]; then
+    echo 4
+  else
+    free -g --si | awk ' /Mem:/  {print $2} '
+  fi
+}
+
+create_completion_dir() {
+  if [ ! -d /etc/bash_completion.d ]; then
+    error_on_not_root "Create /etc/bash_completion.d directory"
+    mkdir -p /etc/bash_completion.d
+  fi
+}
+
+##
+## Do we have enough memory and disk space for Fleio?
+##
+check_disk_and_memory() {
+  avail_mem=0
+  avail_mem=$(check_linux_memory)
+
+  if [ "$avail_mem" -lt 4 ]; then
+    echo "Error: Fleio requires 4GB RAM to run. This system does not appear" >&2
+    echo "to have sufficient memory." >&2
+    echo "" >&2
+    echo "Fleio may not work properly, or future upgrades of Fleio may not" >&2
+    echo "complete successfully." >&2
+    exit 1
+  fi
+
+   free_disk="$(df /var | tail -n 1 | awk '{print $4}')"
+   if [ "$free_disk" -lt 5000000 ]; then
+    echo "Error: Fleio requires at least 5GB free disk space. This system" >&2
+    echo "does not appear to have sufficient disk space." >&2
+    echo "" >&2
+    echo "Please free up some space, or expand your disk, before continuing." >&2
+    echo "" >&2
+    exit 1
+  fi
+}
+
+##
+## Check if curl is installed
+##
+check_curl_installed() {
+  if [ -z "$(get_binary_path curl)" ]; then
+    # curl not installed
+    echo "Error: curl not found. Install curl and re-run the install." >&2
+    exit 1
+  fi
+}
+
+##
+## Check if curl is installed
+##
+check_sudo_installed() {
+  if [ -z "$(get_binary_path sudo)" ]; then
+    # sudo not installed
+    echo "Error: sudo not found. Install sudo and re-run the install." >&2
+    exit 1
+  fi
+}
+
+##
+## Do we have fleio user?
+##
+check_fleio_user() {
+  fleio_group_name=$(getent group "$FLEIO_GID" | cut -d: -f1)
+  if [ "$fleio_group_name" = "" ]; then
+    # Group fleio does not exist
+    msg="Error: fleio group does not exist. "
+    msg="${msg} Run Fleio install as root or manually create group fleio with GID $FLEIO_GID."
+    error_on_not_root "$msg"
+
+    existing_group_id=$(getent group fleio | cut -d: -f3)
+
+    if [ "$existing_group_id" = "" ]; then
+      groupadd --system -g $FLEIO_GID fleio
+      new_group=$(getent group "$FLEIO_GID" | cut -d: -f1)
+      if [ "$new_group" != "fleio" ]; then
+        echo "Error: Failed to add group fleio." >&2
+        exit 1
+      fi
+    else
+      echo "Error: Found group with name fleio, but does not have GID $FLEIO_GID. Delete it and re-run." >&2
+      exit 1
+    fi
+  elif [ "$fleio_group_name" != "fleio" ]; then
+    echo "Error: An user group with ID $FLEIO_GID already exists, but it's not called \"fleio\"." >&2
+    exit 1
+  fi
+
+  fleio_username=$(getent passwd "$FLEIO_UID" | cut -d: -f1)
+  if [ "$fleio_username" = "" ]; then
+    # User fleio does not exist
+    msg="Error: fleio user does not exist. Run Fleio install as root or manually create user fleio with UID $FLEIO_UID."
+    error_on_not_root "$msg"
+
+    useradd --system --gid fleio --gid docker --uid $FLEIO_UID --shell /bin/bash -m -d /home/fleio fleio
+    new_user=$(getent passwd "$FLEIO_GID" | cut -d: -f1)
+    if [ "$new_user" != "fleio" ]; then
+      echo "Error: Failed to add user fleio." >&2
+      exit 1
+    else
+      echo "User fleio created."
+      echo
+      echo -n "After this installation completes, you can run fleio command as root or "
+      echo "add your user to /etc/sudoers (with sudo visudo):"
+      echo "the_username ALL=(fleio:fleio) NOPASSWD: ALL"
+      echo
+    fi
+  elif [ "$fleio_username" != "fleio" ]; then
+    echo "Error: An user with ID $FLEIO_UID already exists, but it's not called \"fleio\"." >&2
+    exit 1
+  fi
+}
+
+# check all files and directories /home/fleio are owned by fleio:docker
+check_files_owner() {
+  if [ ! -d /home/fleio ]; then
+    error_on_not_root "Error: Create /home/fleio directory or run install as root"
+    mkdir -p /home/fleio
+    chown fleio /home/fleio
+  fi
+
+  if [ ! -d /home/fleio/bin ]; then
+    error_on_not_root "Error: Create /home/fleio/bin directory or run install as root"
+    mkdir -p /home/fleio/bin
+    chown fleio /home/fleio/bin
+  fi
+
+  if [ "$(stat -c %U /home/fleio)" != "fleio" ]; then
+    error_on_not_root "Error: Change owner of directory /home/fleio to fleio or run install as root"
+    chown fleio /home/fleio
+  fi
+
+  wrong_owner_files="$($AS_FLEIO find /home/fleio -not -group docker -or -not -user fleio)"
+
+  if [ "$wrong_owner_files" != "" ]; then
+    msg="Error: The following files do not have fleio:docker as user and group. Fix this or run install as root:"
+    msg="${msg}\n${wrong_owner_files}"
+    error_on_not_root "$msg"
+    chown -R fleio:docker /home/fleio
+  fi
+}
+
+check_sudo_fleio() {
+  if [ "$(whoami)" != "fleio" ] && [ "$EUID" -ne 0 ]; then
+    sudo_ok=$(sudo -u fleio echo ok)
+    if [ "ok" != "$sudo_ok" ]; then
+      echo "Error: can not sudo as fleio user. Run command as root or add user to /etc/sudoers (with sudo visudo):" >&2
+      echo "the_username ALL=(fleio:fleio) NOPASSWD: ALL" >&2
+      echo "" >&2
+      exit 1
+    fi
+  fi
+}
+
+create_fleio_symlink() {
+  # doesn't exists as symlink nor file
+  if [ ! -L /usr/bin/fleio ] && [ ! -f /usr/bin/fleio ]; then
+    msg="Error: symlink /usr/bin/fleio does not exist. "
+    msg="${msg}Run Fleio install as root or manually point symlink /usr/bin/fleio to /home/fleio/bin/fleio."
+    error_on_not_root "$msg"
+    ln -s $FLEIO_BIN_DIR/fleio /usr/bin/fleio
+  fi
+}
+
+create_fleio_completion_symlink() {
+  if [ ! -L /etc/bash_completion.d/fleio-completion.bash ] && [ ! -f /etc/bash_completion.d/fleio-completion.bash ]; then
+    # if missing, create empty file
+    $AS_FLEIO touch $FLEIO_BIN_DIR/fleio-completion.bash
+    msg="Error: symlink /etc/bash_completion.d/fleio-completion.bash does not exist. "
+    msg="${msg}Run Fleio install as root or manually point symlink "
+    msg="${msg}/etc/bash_completion.d/fleio-completion.bash to $FLEIO_BIN_DIR/fleio-completion.bash"
+    error_on_not_root "$msg"
+    ln -s $FLEIO_BIN_DIR/fleio-completion.bash /etc/bash_completion.d/fleio-completion.bash
+  fi
+}
+
+##
+## Legacy function: used when installing versions 2020.12.*
+## Pulls utils image and copies install scripts
+## $1 - version
+##
+legacy_pull_install_scripts() {
+  version="$1"
+
+  $AS_FLEIO mkdir -p /home/fleio/compose
+
+  if [ ! -f /home/fleio/compose/docker-compose.override.yml ]; then
+    {
+      echo "# Add here your docker-compose customizations";
+      echo "# docker-compose.override.yml is not overwritten by Fleio";
+      echo "# (while docker-compose.yml may be OVERWRITTEN on Fleio upgrades)";
+      echo "";
+    } | $AS_FLEIO tee /home/fleio/compose/docker-compose.override.yml > /dev/null
+  fi
+
+  if [ "$USE_LOCAL_FLEIO_CMD" != "1" ]; then
+    # is not using existing local scripts, copy them from image
+    $AS_FLEIO mkdir -p $FLEIO_BIN_DIR
+    utils_image=$FLEIO_DOCKER_HUB/fleio_utils$(get_release_suffix $version)
+    $AS_FLEIO docker pull "$utils_image"
+    utils_container=$($AS_FLEIO docker create "$utils_image" --entrypoint=/bin/true)
+    # copy install scripts from image
+    $AS_FLEIO docker cp "$utils_container:/var/webapps/fleio/utils/bin/." $FLEIO_BIN_DIR/
+    $AS_FLEIO chmod +x $FLEIO_BIN_DIR/*
+    $AS_FLEIO docker cp "$utils_container:/var/webapps/fleio/utils/templates/env_template" \
+      /home/fleio/compose/env_template
+    $AS_FLEIO docker rm "$utils_container" > /dev/null
+  fi
+}
+
+## Legacy function used before 2020.12.0 release
+## $1 - version being installed
+legacy_create_env() {
+  local version="$1"
+  if [ "$USE_LOCAL_FLEIO_CMD" != "1" ]; then
+    # is not using existing local scripts, copy them from image
+    $AS_FLEIO mkdir -p /home/fleio/bin/
+    backend_image=$FLEIO_DOCKER_HUB/fleio_backend$(get_release_suffix $version)
+    $AS_FLEIO docker pull "$backend_image"
+    backend_container=$($AS_FLEIO docker create "$backend_image" --entrypoint=/bin/true)
+    # copy install scripts from image
+    $AS_FLEIO docker cp "$backend_container:/var/webapps/fleio/project/docker_install/bin/." /home/fleio/bin/
+    $AS_FLEIO chmod +x /home/fleio/bin/*
+    $AS_FLEIO docker rm "$backend_container" > /dev/null
+  fi
+}
+
+##
+## Prepares script files needed to perform the Fleio install
+## $1 - version to install
+##
+prepare_install() {
+  local version="$1"
+  if [ "$(is_ci_version $1)" = "1" ]; then
+    pull_install_scripts "$version"
+  else
+    if [ $(ver2int "$version") -lt $(ver2int "2020.12.0") ]; then
+      legacy_create_env "$version"
+    elif [ $(ver2int $version) -lt $(ver2int "2021.01.0") ]; then
+      legacy_pull_install_scripts "$version"
+    else
+      pull_install_scripts "$version"
+    fi
+  fi
+}
+
+##
+## $1 - version to install
+##
+run_install() {
+  local version="$1"
+  local debug_flag="$DEBUG_ARG"
+  if [ "$(is_ci_version $version)" != "1" ] && [ $(ver2int $version) -lt $(ver2int "2020.12.0") ]; then
+    # "fleio --debug" flag was added in 2020.12.0
+    debug_flag=""
+  fi
+  $FLEIO_BIN_DIR/fleio install "$debug_flag" "$version"
+}
+
+# empty string if no commands specified, "1" if one command, multilple "11..." if multiple commands
+commands_concat="${HELP_CMD}${GET_LATEST_CMD}${GET_VERSIONS_CMD}"
+
+if [ "$commands_concat" != "" ] && [ "$commands_concat" != "1" ]; then
+  # just one command at a time makes sense, do not count help as command, as user may look for help on a command
+  echo "Error: More than one command specified. This is confusing." >&2
+  exit 1
+fi
+
+## Installs legacy docker-compose (V1) for older Fleio version
+install_legacy_docker_compose() {
+  if [[ "$FLEIO_VERSION" < "2022.11.0" ]]; then
+    if [ -z "$(get_binary_path docker-compose)" ]; then
+      msg="Error: docker-compose is not installed. Run Fleio install as root or install docker-compose manually."
+      error_on_not_root "$msg"
+      echo ""
+      echo " * Installing docker-compose V1"
+      echo ""
+      curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" \
+        -o /usr/local/bin/docker-compose
+      chmod +x /usr/local/bin/docker-compose
+      ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+      # Install command completion
+      curl -L https://raw.githubusercontent.com/docker/compose/1.27.4/contrib/completion/bash/docker-compose \
+        -o /etc/bash_completion.d/docker-compose
+    fi
+
+    if [ -z "$(get_binary_path docker-compose)" ]; then
+      echo "docker-compose V1 install failed. Quitting." >&2
+      exit 1
+    fi
+  fi
+}
+
+
+if [ "$HELP_CMD" = "1" ]; then
+  echo "$HELP_TEXT"
+elif [ "$commands_concat" = "" ]; then
+  # default to install command
+  check_curl_installed
+  include_utils
+  init_env_vars
+  determine_version_to_install
+  check_disk_and_memory
+  check_sudo_installed
+  check_and_upgrade_docker_install "$(get_target_docker_version "$FLEIO_VERSION")" \
+  "$(get_target_docker_compose_version "$FLEIO_VERSION")"
+  install_legacy_docker_compose
+  create_completion_dir
+  check_fleio_user
+  check_files_owner
+  check_sudo_fleio
+  read_and_validate_license_key "$FLEIO_VERSION"
+  prepare_install "$FLEIO_VERSION"
+  create_fleio_symlink
+  create_fleio_completion_symlink
+  run_install "$FLEIO_VERSION"
+elif [ "$GET_LATEST_CMD" = "1" ]; then
+  get_latest_version
+elif [ "$GET_VERSIONS_CMD" = "1" ]; then
+  get_versions
+else
+  echo "Error: unknown command" >&2
+  exit 1
+fi
