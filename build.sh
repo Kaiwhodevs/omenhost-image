@@ -44,7 +44,9 @@ fi
 # Load environment variables if .env file exists
 if [ -f ".env" ]; then
     print_status "Loading environment variables from .env file..."
-    export $(cat .env | grep -v '^#' | xargs)
+    set -a
+    [ -f .env ] && . .env
+    set +a
 fi
 
 # Set default values
