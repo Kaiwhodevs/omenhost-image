@@ -42,20 +42,20 @@ services:
       - backend
 
   # Custom backup service
-  backup:
-    image: alpine:latest
-    volumes:
-      - fleio-backups:/backups
-      - ./scripts:/scripts:ro
-    environment:
-      - FLEIO_S3_BUCKET=${FLEIO_S3_BUCKET:-}
-      - FLEIO_S3_REGION=${FLEIO_S3_REGION:-us-east-1}
-      - FLEIO_S3_ACCESS_KEY=${FLEIO_S3_ACCESS_KEY:-}
-      - FLEIO_S3_SECRET_KEY=${FLEIO_S3_SECRET_KEY:-}
-    command: /scripts/backup-cron.sh
-    depends_on:
-      - db
-      - backend
+  # backup:
+  #   image: alpine:latest
+  #   volumes:
+  #     - fleio-backups:/backups
+  #     - ./scripts:/scripts:ro
+  #   environment:
+  #     - FLEIO_S3_BUCKET=${FLEIO_S3_BUCKET:-}
+  #     - FLEIO_S3_REGION=${FLEIO_S3_REGION:-us-east-1}
+  #     - FLEIO_S3_ACCESS_KEY=${FLEIO_S3_ACCESS_KEY:-}
+  #     - FLEIO_S3_SECRET_KEY=${FLEIO_S3_SECRET_KEY:-}
+  #   command: /scripts/backup-cron.sh
+  #   depends_on:
+  #     - db
+  #     - backend
 
 volumes:
   fleio-backups:
