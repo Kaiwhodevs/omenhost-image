@@ -48,5 +48,8 @@ RUN pip install --no-cache-dir \
 RUN chown -R fleio:fleio /opt/fleio-custom
 RUN chown -R fleio:fleio /var/backups/fleio
 
+# Switch to fleio user for application runtime (ensure this user is defined in the base image)
+USER fleio
+
 # Use custom entrypoint
 ENTRYPOINT ["/opt/fleio-custom/docker-entrypoint.sh"]
