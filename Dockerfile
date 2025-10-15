@@ -3,6 +3,7 @@
 
 FROM hub.fleio.com/fleio_backend-2025-06:1
 
+USER root
 # Set environment variables
 ENV FLEIO_CUSTOM_BRANDING=true
 ENV FLEIO_NOWPAYMENTS_ENABLED=true

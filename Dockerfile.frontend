@@ -3,6 +3,7 @@
 
 FROM hub.fleio.com/fleio_frontend-2025-06:1
 
+USER root
 # Set environment variables
 ENV FLEIO_CUSTOM_THEME=true
 ENV FLEIO_DISCORD_THEME=true
@@ -21,5 +22,5 @@ COPY assets/custom.css /opt/fleio/static/css/
 COPY assets/custom.js /opt/fleio/static/js/
 
 # Set proper permissions
-RUN chown -R fleio:fleio /opt/fleio-custom
-RUN chown -R fleio:fleio /opt/fleio/static
+RUN chown -R root:root /opt/fleio-custom
+RUN chown -R root:root /opt/fleio/static
