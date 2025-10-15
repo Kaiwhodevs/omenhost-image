@@ -19,7 +19,6 @@ COPY templates/ /opt/fleio-custom/templates/
 
 # Copy custom CSS and JS
 COPY assets/custom.css /opt/fleio/static/css/
-COPY assets/custom.js /opt/fleio/static/js/
 
 # Set proper permissions
 RUN chown -R root:root /opt/fleio-custom
