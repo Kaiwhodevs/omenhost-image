@@ -1,65 +1,30 @@
 #!/bin/bash
-# Setup custom branding for Fleio
+# Generate a _branding-vars.css file with dynamic CSS variables from fleio-custom.conf
+CONFIG_FILE="/opt/fleio-custom/config/fleio-custom.conf"
+OUTPUT_CSS="/opt/fleio-custom/assets/_branding-vars.css"
 
-echo "Setting up custom branding..."
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "[branding-setup] Config not found: $CONFIG_FILE"
+    exit 1
+fi
 
-# Create custom CSS file
-cat > /opt/fleio-custom/assets/custom.css << EOF
-/* Custom Fleio Branding CSS */
+accent_color=$(awk -F' = ' '/\[branding\]/{a=1} a==1 && $1=="accent_color"{print $2;exit}' "$CONFIG_FILE")
+background_theme=$(awk -F' = ' '/\[branding\]/{a=1} a==1 && $1=="background_theme"{print $2;exit}' "$CONFIG_FILE")
+secondary_bg="#2c2f33" # fallback/default
+txt_primary="#ffffff"
+txt_secondary="#b9bbbe"
+logo_path=$(awk -F' = ' '/\[branding\]/{a=1} a==1 && $1=="logo_path"{print $2;exit}' "$CONFIG_FILE")
+
+cat > "$OUTPUT_CSS" <<EOF
 :root {
-    --accent-color: ${FLEIO_ACCENT_COLOR};
-    --background-theme: ${FLEIO_BACKGROUND_THEME};
-}
-
-/* Apply accent color to various elements */
-.btn-primary, .btn-accent {
-    background-color: var(--accent-color) !important;
-    border-color: var(--accent-color) !important;
-}
-
-.navbar-brand, .logo {
-    color: var(--accent-color) !important;
-}
-
-/* Apply background theme */
-body, .main-content {
-    background-color: var(--background-theme) !important;
-}
-
-/* Discord-like styling for custom pages */
-.discord-theme {
-    background: linear-gradient(135deg, #1a1d21 0%, #2c2f33 100%);
-    color: #ffffff;
-    font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-}
-
-.discord-theme .card {
-    background: rgba(47, 49, 54, 0.8);
-    border: 1px solid #40444b;
-    border-radius: 8px;
-}
-
-.discord-theme .form-control {
-    background: #40444b;
-    border: 1px solid #40444b;
-    color: #ffffff;
-}
-
-.discord-theme .form-control:focus {
-    background: #40444b;
-    border-color: var(--accent-color);
-    color: #ffffff;
-    box-shadow: 0 0 0 0.2rem rgba(150, 128, 254, 0.25);
+    --accent-color: ${accent_color:-#9680fe};
+    --background-theme: ${background_theme:-#1a1d21};
+    --secondary-bg: ${secondary_bg};
+    --text-primary: ${txt_primary};
+    --text-secondary: ${txt_secondary};
+    /* Optional: logo-path as CSS variable for advanced use */
+    --branding-logo-path: url('${logo_path:-/opt/fleio-custom/assets/logo.png}');
 }
 EOF
 
-# Copy logo and favicon if they exist
-if [ -f "$FLEIO_LOGO_PATH" ]; then
-    cp "$FLEIO_LOGO_PATH" /opt/fleio/static/images/logo.png
-fi
-
-if [ -f "$FLEIO_FAVICON_PATH" ]; then
-    cp "$FLEIO_FAVICON_PATH" /opt/fleio/static/images/favicon.ico
-fi
-
-echo "Branding setup complete"
+echo "[branding-setup] Generated $OUTPUT_CSS with colors: $accent_color $background_theme from config."

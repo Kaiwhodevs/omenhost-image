@@ -1,166 +1,94 @@
 #!/bin/bash
-# Setup backup system for Fleio
+# Fleio backup and S3 upload script with S3 retention logic
 
-echo "Setting up backup system..."
-
-# Create backup directory
-mkdir -p /var/backups/fleio/{database,settings,uploads}
-
-# Create backup script using official fleio backup command
-cat > /opt/fleio-custom/scripts/backup-fleio.sh << 'EOF'
-#!/bin/bash
-# Fleio backup script using official fleio backup now command
+# Load configuration - prefer config loader if available
+if [ -f "/opt/fleio-custom/scripts/load-config.sh" ]; then
+    source /opt/fleio-custom/scripts/load-config.sh
+fi
 
 BACKUP_DIR="/var/backups/fleio"
 DATE=$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="fleio_backup_${DATE}"
+RETENTION_DAYS="${FLEIO_BACKUP_RETENTION_DAYS:-30}"
 
-# Create backup directory
-mkdir -p "${BACKUP_DIR}"
+set -e
 
-# Use official fleio backup command
-echo "Creating Fleio database backup using 'fleio backup now'..."
-cd /opt/fleio
-python manage.py backup --output="${BACKUP_DIR}/database/${BACKUP_NAME}.sql"
+# Create backup directories
+mkdir -p "$BACKUP_DIR/database" "$BACKUP_DIR/settings" "$BACKUP_DIR/uploads"
 
-# Backup settings directory from Docker volumes
-echo "Backing up settings directory..."
-tar -czf "${BACKUP_DIR}/settings/${BACKUP_NAME}.tar.gz" /var/lib/docker/volumes/fleio_settings/
-
-# Encrypt database backup if encryption key is provided
-if [ -n "$FLEIO_BACKUP_ENCRYPTION_KEY" ]; then
-    echo "Encrypting database backup..."
-    gpg --symmetric --cipher-algo AES256 --passphrase "$FLEIO_BACKUP_ENCRYPTION_KEY" \
-        --output "${BACKUP_DIR}/database/${BACKUP_NAME}.sql.gpg" \
-        "${BACKUP_DIR}/database/${BACKUP_NAME}.sql"
-    rm "${BACKUP_DIR}/database/${BACKUP_NAME}.sql"
-    
-    echo "Encrypting settings backup..."
-    gpg --symmetric --cipher-algo AES256 --passphrase "$FLEIO_BACKUP_ENCRYPTION_KEY" \
-        --output "${BACKUP_DIR}/settings/${BACKUP_NAME}.tar.gz.gpg" \
-        "${BACKUP_DIR}/settings/${BACKUP_NAME}.tar.gz"
-    rm "${BACKUP_DIR}/settings/${BACKUP_NAME}.tar.gz"
-fi
-
-# Create combined backup archive
-echo "Creating combined backup archive..."
-if [ -n "$FLEIO_BACKUP_ENCRYPTION_KEY" ]; then
-    tar -czf "${BACKUP_DIR}/${BACKUP_NAME}.tar.gz" \
-        "${BACKUP_DIR}/database/${BACKUP_NAME}.sql.gpg" \
-        "${BACKUP_DIR}/settings/${BACKUP_NAME}.tar.gz.gpg"
+# Backup database using Fleio command
+echo "[fleio-backup] Creating Fleio database backup..."
+cd /opt/fleio || exit 1
+if python manage.py backup --output="$BACKUP_DIR/database/${BACKUP_NAME}.sql"; then
+    echo "[fleio-backup] Database backup succeeded."
 else
-    tar -czf "${BACKUP_DIR}/${BACKUP_NAME}.tar.gz" \
-        "${BACKUP_DIR}/database/${BACKUP_NAME}.sql" \
-        "${BACKUP_DIR}/settings/${BACKUP_NAME}.tar.gz"
+    echo "[fleio-backup] ERROR: Database backup failed!" >&2
+    exit 1
 fi
 
-# Upload to S3 if configured
-if [ -n "$FLEIO_S3_BUCKET" ] && [ -n "$FLEIO_S3_ACCESS_KEY" ]; then
-    echo "Uploading encrypted backup to S3..."
+# Backup settings directory
+echo "[fleio-backup] Archiving settings directory..."
+tar -czf "$BACKUP_DIR/settings/${BACKUP_NAME}.tar.gz" /var/lib/docker/volumes/fleio_settings/
+
+# Encrypt backups if key provided
+if [ -n "$FLEIO_BACKUP_ENCRYPTION_KEY" ]; then
+    echo "[fleio-backup] Encrypting backups (AES256)..."
+    gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase "$FLEIO_BACKUP_ENCRYPTION_KEY" \
+        --output "$BACKUP_DIR/database/${BACKUP_NAME}.sql.gpg" \
+        "$BACKUP_DIR/database/${BACKUP_NAME}.sql" && rm "$BACKUP_DIR/database/${BACKUP_NAME}.sql"
+    gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase "$FLEIO_BACKUP_ENCRYPTION_KEY" \
+        --output "$BACKUP_DIR/settings/${BACKUP_NAME}.tar.gz.gpg" \
+        "$BACKUP_DIR/settings/${BACKUP_NAME}.tar.gz" && rm "$BACKUP_DIR/settings/${BACKUP_NAME}.tar.gz"
+    ARCHIVE_DB="$BACKUP_DIR/database/${BACKUP_NAME}.sql.gpg"
+    ARCHIVE_SETTINGS="$BACKUP_DIR/settings/${BACKUP_NAME}.tar.gz.gpg"
+else
+    ARCHIVE_DB="$BACKUP_DIR/database/${BACKUP_NAME}.sql"
+    ARCHIVE_SETTINGS="$BACKUP_DIR/settings/${BACKUP_NAME}.tar.gz"
+fi
+
+# Create combined archive
+echo "[fleio-backup] Creating combined backup archive..."
+tar -czf "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" "$ARCHIVE_DB" "$ARCHIVE_SETTINGS"
+
+# Upload backup to S3 if configured
+if [ -n "$FLEIO_S3_BUCKET" ] && [ -n "$FLEIO_S3_ACCESS_KEY" ] && [ -n "$FLEIO_S3_SECRET_KEY" ]; then
+    echo "[fleio-backup] Uploading backup to S3 bucket $FLEIO_S3_BUCKET..."
     S3_ENDPOINT_FLAG=""
     if [ -n "$FLEIO_S3_ENDPOINT_URL" ]; then
         S3_ENDPOINT_FLAG="--endpoint-url $FLEIO_S3_ENDPOINT_URL"
     fi
-    aws s3 cp "${BACKUP_DIR}/${BACKUP_NAME}.tar.gz" \
+    export AWS_ACCESS_KEY_ID="$FLEIO_S3_ACCESS_KEY"
+    export AWS_SECRET_ACCESS_KEY="$FLEIO_S3_SECRET_KEY"
+    aws s3 cp "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" \
         "s3://${FLEIO_S3_BUCKET}/fleio-backups/${BACKUP_NAME}.tar.gz" \
-        --region "${FLEIO_S3_REGION}" \
+        --region "${FLEIO_S3_REGION:-us-east-1}" \
         $S3_ENDPOINT_FLAG \
-        --storage-class STANDARD_IA
+        --storage-class STANDARD_IA || echo "[fleio-backup] ERROR: S3 upload failed!" >&2
+
+    # S3 retention: delete remote backups older than $RETENTION_DAYS
+    if aws s3 ls "s3://${FLEIO_S3_BUCKET}/fleio-backups/" $S3_ENDPOINT_FLAG > /dev/null 2>&1; then
+        echo "[fleio-backup] Applying S3 backup retention (older than $RETENTION_DAYS days)..."
+        aws s3 ls "s3://${FLEIO_S3_BUCKET}/fleio-backups/" $S3_ENDPOINT_FLAG |
+            awk '{print $4" "$1" "$2}' | while read -r filename filedate filetime; do
+                # filedate is yyyy-mm-dd, filetime is hh:mm:ss
+                # S3 backup files contain date in their name: fleio_backup_YYYYMMDD_HHMMSS.tar.gz
+                backup_date=$(echo "$filename" | grep -oE '[0-9]{8}' | head -1)
+                if [[ -n "$backup_date" ]]; then
+                    bdate=$(date -d "$backup_date" +%s 2>/dev/null || true)
+                    now=$(date +%s)
+                    if [[ -n "$bdate" ]] && (( (now - bdate) / 86400 > RETENTION_DAYS )); then
+                        echo "[fleio-backup] Deleting old S3 backup: $filename"
+                        aws s3 rm "s3://${FLEIO_S3_BUCKET}/fleio-backups/$filename" $S3_ENDPOINT_FLAG
+                    fi
+                fi
+            done
+    fi
 fi
 
 # Cleanup old local backups
-echo "Cleaning up old local backups..."
-find "${BACKUP_DIR}" -name "fleio_backup_*.tar.gz" -mtime +${FLEIO_BACKUP_RETENTION_DAYS:-30} -delete
-find "${BACKUP_DIR}/database" -name "*.sql*" -mtime +${FLEIO_BACKUP_RETENTION_DAYS:-30} -delete
-find "${BACKUP_DIR}/settings" -name "*.tar.gz*" -mtime +${FLEIO_BACKUP_RETENTION_DAYS:-30} -delete
+echo "[fleio-backup] Cleaning up old local backups (older than $RETENTION_DAYS days)..."
+find "$BACKUP_DIR" -name "fleio_backup_*.tar.gz" -mtime +$RETENTION_DAYS -delete
+find "$BACKUP_DIR/database" -name "*.sql*" -mtime +$RETENTION_DAYS -delete
+find "$BACKUP_DIR/settings" -name "*.tar.gz*" -mtime +$RETENTION_DAYS -delete
 
-echo "Backup completed: ${BACKUP_NAME}.tar.gz"
-EOF
-
-chmod +x /opt/fleio-custom/scripts/backup-fleio.sh
-
-# Create backup cron script
-cat > /opt/fleio-custom/scripts/backup-cron.sh << 'EOF'
-#!/bin/bash
-# Backup cron script
-
-# Load configuration
-if [ -f "/opt/fleio-custom/config/fleio-custom.conf" ]; then
-    source /opt/fleio-custom/scripts/load-config.sh
-fi
-
-# Run backup based on frequency
-case "${FLEIO_BACKUP_FREQUENCY:-daily}" in
-    "hourly")
-        /opt/fleio-custom/scripts/backup-fleio.sh
-        ;;
-    "daily")
-        # Run daily at 2 AM
-        if [ $(date +%H) -eq 2 ]; then
-            /opt/fleio-custom/scripts/backup-fleio.sh
-        fi
-        ;;
-    "weekly")
-        # Run weekly on Sunday at 2 AM
-        if [ $(date +%u) -eq 7 ] && [ $(date +%H) -eq 2 ]; then
-            /opt/fleio-custom/scripts/backup-fleio.sh
-        fi
-        ;;
-esac
-EOF
-
-chmod +x /opt/fleio-custom/scripts/backup-cron.sh
-
-# Create restore script
-cat > /opt/fleio-custom/scripts/restore-fleio.sh << 'EOF'
-#!/bin/bash
-# Fleio restore script
-
-if [ -z "$1" ]; then
-    echo "Usage: $0 <backup_file>"
-    exit 1
-fi
-
-BACKUP_FILE="$1"
-RESTORE_DIR="/tmp/fleio_restore_$(date +%s)"
-
-echo "Restoring from backup: $BACKUP_FILE"
-
-# Extract backup
-mkdir -p "$RESTORE_DIR"
-tar -xzf "$BACKUP_FILE" -C "$RESTORE_DIR"
-
-# Restore database
-if [ -f "$RESTORE_DIR/fleio_backup_*.sql" ]; then
-    echo "Restoring database..."
-    psql -h db -U fleio -d fleio < "$RESTORE_DIR/fleio_backup_*.sql"
-fi
-
-# Restore settings
-if [ -f "$RESTORE_DIR/fleio_backup_*.tar.gz" ]; then
-    echo "Restoring settings..."
-    tar -xzf "$RESTORE_DIR/fleio_backup_*.tar.gz" -C /
-fi
-
-# Restore uploads
-if [ -f "$RESTORE_DIR/fleio_backup_*.tar.gz" ]; then
-    echo "Restoring uploads..."
-    tar -xzf "$RESTORE_DIR/fleio_backup_*.tar.gz" -C /
-fi
-
-# Cleanup
-rm -rf "$RESTORE_DIR"
-
-echo "Restore completed"
-EOF
-
-chmod +x /opt/fleio-custom/scripts/restore-fleio.sh
-
-# Setup cron job
-echo "Setting up backup cron job..."
-cat > /etc/cron.d/fleio-backup << EOF
-# Fleio backup cron job
-*/5 * * * * root /opt/fleio-custom/scripts/backup-cron.sh >> /var/log/fleio-backup.log 2>&1
-EOF
-
-echo "Backup system setup complete"
+echo "[fleio-backup] Backup completed: ${BACKUP_NAME}.tar.gz"
